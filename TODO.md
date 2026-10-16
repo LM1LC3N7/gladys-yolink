@@ -102,9 +102,16 @@ up to date at the end of every milestone.
   own alarm duration.
 - **Garage doors** (review B1): the YoLink controller only toggles. Just
   before a toggle the paired sensor is read again (`fetchState`); no sensor,
-  sensor offline or without a state -> refused, whatever the options. After a
-  toggle, the next ones are ignored (ack success, logged) for 60 s or until
-  the sensor reports a change.
+  sensor offline, without a state or any error of that read -> refused,
+  whatever the options (approval R2). The commands of one garage are
+  serialized (a promise chain covering the read, the checks and the toggle,
+  approval R1). After a toggle (or a toggle that failed, which may still have
+  reached the door), the next ones are refused with a "command ignored"
+  message for 60 s or until the sensor reports a change. Limit: a door moving
+  by other means can be reversed, the API cannot tell it moves.
+- **Refresh token** (approval R3): dropped on any failure but network,
+  timeout, unavailable and rate_limited (kept for the next try); the
+  credentials then give a new token.
 - **LeakStop** (YS5009/YS5029): a "device did not answer" on a valve command
   gets a message about the power-saving class A mode. The FlowSmart Meter
   (YS5007) has no valve and is skipped.

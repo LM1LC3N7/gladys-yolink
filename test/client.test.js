@@ -39,6 +39,49 @@ test('an expired refresh token falls back to the credentials', async (t) => {
   );
 });
 
+for (const code of ['010104', '000103']) {
+  test(`a refresh token answered with code ${code} is dropped for the credentials`, async (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: NOW });
+    const server = fakeYoLink();
+    const clock = { now: NOW };
+    const c = client(server, clock);
+    await c.homeId();
+    server.queue.push({
+      match: (r) => r.body?.grant_type === 'refresh_token',
+      body: { code, desc: 'The token is expired' },
+    });
+    clock.now += 2 * 3600_000;
+    t.mock.timers.tick(2 * 3600_000);
+    await c.homeId();
+    assert.deepEqual(
+      server.tokenRequests().map((r) => r.body.grant_type),
+      ['client_credentials', 'refresh_token', 'client_credentials'],
+    );
+    assert.equal(c.session.accessToken, 'at-2');
+  });
+}
+
+test('a refresh token failing for a passing reason is kept', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+  const server = fakeYoLink();
+  const clock = { now: NOW };
+  const c = client(server, clock);
+  await c.homeId();
+  server.queue.push({
+    match: (r) => r.body?.grant_type === 'refresh_token',
+    status: 503,
+    body: 'down',
+  });
+  clock.now += 2 * 3600_000;
+  t.mock.timers.tick(2 * 3600_000);
+  await assert.rejects(c.homeId(), { kind: 'unavailable' });
+  await c.homeId();
+  assert.deepEqual(
+    server.tokenRequests().map((r) => r.body.grant_type),
+    ['client_credentials', 'refresh_token', 'refresh_token'],
+  );
+});
+
 test('without credentials nothing is sent', async () => {
   const server = fakeYoLink();
   const c = new YoLinkClient({ transport: server.transport });

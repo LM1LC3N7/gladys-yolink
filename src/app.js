@@ -93,6 +93,8 @@ export class YoLinkApp {
     this.pausedUntil = 0;
     /** garageId -> { until, door }: a toggle just sent, and the sensor state then */
     this.garageGuards = new Map();
+    /** garageId -> tail of its command chain: one garage command at a time */
+    this.commandChains = new Map();
     this.published = undefined;
     /** deviceId -> badge last published (JSON) */
     this.transports = new Map();
@@ -583,16 +585,49 @@ export class YoLinkApp {
       throw new Error('Unknown YoLink device: wait for the first reading of the account');
     }
     if (role === 'garage' && device.kind === 'garage') {
-      await this.refreshGarageDoor(device);
+      // One garage command at a time: two "close" received together must not
+      // both see the door open and send two toggles.
+      return this.serialized(device.id, async () => {
+        const door = await this.refreshGarageDoor(device);
+        return this.execute(device, role, this.commandOf(device, role, on === 1, undefined, door));
+      });
     }
-    const command = this.commandOf(device, role, on === 1, target.index);
+    return this.execute(device, role, this.commandOf(device, role, on === 1, target.index));
+  }
+
+  /** Runs `task` after the previous task of the same key (a promise chain per key). */
+  serialized(key, task) {
+    const previous = this.commandChains.get(key) ?? Promise.resolve();
+    const run = previous.catch(() => {}).then(task);
+    const tail = run.catch(() => {});
+    this.commandChains.set(key, tail);
+    tail.then(() => {
+      if (this.commandChains.get(key) === tail) {
+        this.commandChains.delete(key);
+      }
+    });
+    return run;
+  }
+
+  /** Sends a command of commandOf() and shows its result. */
+  async execute(device, role, command) {
     if (!command) {
       return;
     }
     let answer;
+    const guard = () => {
+      if (role === 'garage') {
+        this.garageGuards.set(device.id, {
+          until: this.now() + TIMINGS.garageGuard,
+          door: this.garageState(device),
+        });
+      }
+    };
     try {
       answer = await this.client.invoke(device, command.method, command.params);
     } catch (err) {
+      // A toggle that timed out may still have reached the door: guarded too.
+      guard();
       if (
         err.kind === 'device' &&
         device.kind === 'valve' &&
@@ -604,12 +639,7 @@ export class YoLinkApp {
       throw new Error(errorReason(err), { cause: err });
     }
     this.logger.info(`${deviceName(device, 'en')}: ${command.method} ${command.log}`);
-    if (role === 'garage') {
-      this.garageGuards.set(device.id, {
-        until: this.now() + TIMINGS.garageGuard,
-        door: this.garageState(device),
-      });
-    }
+    guard();
     const fromAnswer = flatten(answer);
     const reading = command.optimistic
       ? { ...command.optimistic, ...fromAnswer }
@@ -625,23 +655,36 @@ export class YoLinkApp {
 
   /**
    * Just before a garage toggle: the sensor of the door read again, so the
-   * toggle never relies on an old state. A sensor offline or without a state
-   * leaves the door unknown, and commandOf() refuses.
+   * toggle never relies on an old state. Resolves "open" or "closed", or
+   * undefined (no sensor, any error, sensor offline, no usable state): the
+   * door is then unknown and commandOf() refuses.
    */
   async refreshGarageDoor(garage) {
     const door = this.doorOf(garage);
     if (!door) {
-      return;
+      return undefined;
     }
+    let state;
     try {
-      await this.readState(door);
+      const data = await this.client.state(door);
+      const reading = flatten(data);
+      if (data.online === false) {
+        this.online.set(door.id, false);
+      } else {
+        this.online.set(door.id, true);
+        state = openState(reading);
+        this.readings.set(door.id, reading);
+      }
     } catch (err) {
-      this.online.set(door.id, false);
+      if (err.kind === 'device') {
+        this.online.set(door.id, false);
+      }
       this.logger.info(`${deviceName(door, 'en')}: no state (${errorReason(err)})`);
     }
     for (const g of this.garagesOf(door)) {
       this.queue(g);
     }
+    return state;
   }
 
   /** A garage toggle in progress: the guard holds until it expires or the sensor reports a change. */
@@ -663,7 +706,7 @@ export class YoLinkApp {
    * reading shown before YoLink reports it (the harmless commands only; a
    * lock, a valve or a garage door wait for the device to report).
    */
-  commandOf(device, role, on, index) {
+  commandOf(device, role, on, index, door) {
     const { allowUnlock, allowGarageOpen, allowValveOpen, allowValveClose, allowSirenStop } =
       this.config;
     if (device.kind !== KIND_OF_ROLE[role] || (role === 'socket' && !(index >= 0 && index < 8))) {
@@ -728,9 +771,8 @@ export class YoLinkApp {
           optimistic: { state: on ? 'alert' : 'normal' },
         };
       case 'garage': {
-        const door = this.doorOf(device);
-        const current =
-          door && this.online.get(door.id) !== false ? this.garageState(device) : undefined;
+        // `door`: the state just read from the sensor (refreshGarageDoor), never an old one.
+        const current = door;
         if (on && !allowGarageOpen) {
           throw this.denied('garage');
         }
@@ -744,7 +786,7 @@ export class YoLinkApp {
         if (this.garageMoving(device)) {
           // A second toggle while the door moves would reverse it.
           this.logger.info(`${deviceName(device, 'en')}: toggle ignored, the door is moving`);
-          return null;
+          throw this.denied('garageMoving');
         }
         return { method: 'toggle', params: undefined, log: on ? '(open)' : '(close)' };
       }

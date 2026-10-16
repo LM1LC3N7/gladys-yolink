@@ -9,6 +9,9 @@
 import { ENDPOINTS, TIMINGS, TOKEN_URL } from './constants.js';
 import { YoLinkError, httpError, httpRequest, parseBudp, parseToken } from './yolink.js';
 
+/** Token errors worth a retry of the same refresh token later. */
+const TRANSIENT = new Set(['network', 'timeout', 'unavailable', 'rate_limited']);
+
 const form = (fields) => new URLSearchParams(fields).toString();
 
 export class YoLinkClient {
@@ -74,9 +77,14 @@ export class YoLinkClient {
               refresh_token: refreshToken,
             });
           } catch (err) {
-            // An expired refresh token: the credentials themselves give a new one.
-            if (err.kind !== 'refused') {
+            // A passing failure: keep the refresh token for the next try.
+            if (TRANSIENT.has(err.kind)) {
               throw err;
+            }
+            // Refused, expired (000103, 010104…) or anything else: the refresh
+            // token is dropped, the credentials themselves give a new token.
+            if (this.session?.refreshToken === refreshToken) {
+              this.session = { ...this.session, refreshToken: undefined };
             }
           }
         }

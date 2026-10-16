@@ -333,7 +333,9 @@ test('garage doors: a second toggle while the door moves is ignored', async (t) 
   await createAll(gladys);
   assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
   await advance(5000);
-  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  const ignored = await set(gladys, IDS.garage, 'garage', 0);
+  assert.equal(ignored.success, false);
+  assert.match(ignored.error, /commande ignorée/);
   assert.equal(server.calls('GarageDoor.toggle').length, 1, 'one toggle for two "close"');
   // 60 s later, the guard is over.
   await advance(56_000);
@@ -346,6 +348,56 @@ test('garage doors: a second toggle while the door moves is ignored', async (t) 
   server.states[IDS.garageSensor].state = 'open';
   assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
   assert.equal(server.calls('GarageDoor.toggle').length, 3);
+});
+
+test('garage doors: two "close" at the same time send one toggle', async (t) => {
+  const server = fakeYoLink();
+  server.doorMoves = false;
+  server.states[IDS.garageSensor].state = 'open';
+  const { gladys } = await setup(t, { server });
+  await createAll(gladys);
+  const acks = await Promise.all([
+    set(gladys, IDS.garage, 'garage', 0),
+    set(gladys, IDS.garage, 'garage', 0),
+  ]);
+  assert.equal(server.calls('GarageDoor.toggle').length, 1);
+  assert.deepEqual(
+    acks.map((a) => a.success),
+    [true, false],
+  );
+});
+
+for (const code of ['999999', '020101']) {
+  test(`garage doors: a sensor read answering ${code} refuses the command`, async (t) => {
+    const server = fakeYoLink();
+    server.states[IDS.garageSensor].state = 'open';
+    const { gladys } = await setup(t, { server });
+    await createAll(gladys);
+    server.queue.push({
+      match: (r) =>
+        r.body?.method === 'DoorSensor.fetchState' && r.body.targetDevice === IDS.garageSensor,
+      body: { code, desc: 'failed' },
+    });
+    const refused = await set(gladys, IDS.garage, 'garage', 0);
+    assert.equal(refused.success, false);
+    assert.match(refused.error, /inconnu/);
+    assert.equal(server.calls('GarageDoor.toggle').length, 0);
+  });
+}
+
+test('garage doors: a sensor fetchState reports offline refuses the command', async (t) => {
+  const server = fakeYoLink();
+  server.states[IDS.garageSensor].state = 'open';
+  const { gladys } = await setup(t, { server });
+  await createAll(gladys);
+  server.queue.push({
+    match: (r) =>
+      r.body?.method === 'DoorSensor.fetchState' && r.body.targetDevice === IDS.garageSensor,
+    body: { code: '000000', data: { online: false, state: { state: 'open' } } },
+  });
+  const refused = await set(gladys, IDS.garage, 'garage', 0);
+  assert.equal(refused.success, false);
+  assert.equal(server.calls('GarageDoor.toggle').length, 0);
 });
 
 test('garage doors: a sensor offline refuses the command', async (t) => {

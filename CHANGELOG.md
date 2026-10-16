@@ -24,9 +24,10 @@ the notes of the version's GitHub Release.
 - Unlocking, opening a garage door, opening a water valve and closing one are
   off by default, each behind its own option; stopping a siren has its own
   option too (on by default).
-- Garage doors: the sensor is read again just before a toggle (refused when
-  offline or without a state), and a second toggle within a minute is ignored
-  until the sensor reports a change.
+- Garage doors: one command at a time per door, the sensor read again just
+  before a toggle (refused when that read fails, or the sensor is offline or
+  without a state), and a second toggle within a minute refused ("command
+  ignored") until the sensor reports a change.
 - Live events over MQTT on the US and EU clouds, with an option to turn them
   off (YoLink's MQTT is not encrypted), and a full refresh every 30 minutes
   (10 to 1440); pauses after errors and when YoLink reports its limits

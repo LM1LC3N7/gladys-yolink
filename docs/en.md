@@ -62,9 +62,13 @@ A YoLink garage door only knows a "toggle" command:
 - just before toggling, the integration reads the paired door sensor again;
   when there is none, or it is offline or gives no state, the command is
   refused (a toggle could do the opposite);
-- after a toggle, any new command of that garage is ignored for 60 seconds or
-  until the sensor reports a change: a second "close" sent while the door
-  moves would open it again.
+- the commands of one garage run one at a time; after a toggle, any new
+  command of that garage is refused with a "command ignored" message for 60
+  seconds or until the sensor reports a change: a second "close" sent while
+  the door moves would open it again;
+- **limit**: a door already moving by other means (remote, wall button, the
+  YoLink app) may be reversed by a "close" from Gladys, because the YoLink API
+  cannot tell that it moves: the sensor only says "open" or "closed".
 
 ## How the values arrive
 

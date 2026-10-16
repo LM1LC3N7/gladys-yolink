@@ -66,9 +66,15 @@ La porte de garage YoLink ne connaît qu'une commande « basculer » :
 - juste avant de basculer, l'intégration relit le capteur de porte associé ;
   s'il n'existe pas, est hors ligne ou ne donne pas d'état, la commande est
   refusée (basculer pourrait faire l'inverse) ;
-- après un basculement, toute nouvelle commande de ce garage est ignorée
-  pendant 60 secondes ou jusqu'à ce que le capteur signale un changement : un
-  deuxième « fermer » envoyé pendant que la porte bouge la rouvrirait.
+- les commandes d'un même garage passent une par une ; après un basculement,
+  toute nouvelle commande de ce garage est refusée avec le message « commande
+  ignorée » pendant 60 secondes ou jusqu'à ce que le capteur signale un
+  changement : un deuxième « fermer » envoyé pendant que la porte bouge la
+  rouvrirait ;
+- **limite** : une porte déjà en mouvement par un autre moyen (télécommande,
+  bouton mural, application YoLink) peut être inversée par un « fermer » de
+  Gladys, car l'API YoLink ne permet pas de savoir qu'elle bouge : le capteur
+  ne dit qu'« ouverte » ou « fermée ».
 
 ## Comment les valeurs arrivent
 
