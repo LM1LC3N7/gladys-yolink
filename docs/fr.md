@@ -1,67 +1,120 @@
-# Template de démonstration
+# YoLink
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Cette intégration amène dans Gladys les appareils **YoLink** (YoSmart) reliés à
+un hub YoLink, par l'**API officielle YoLink Open API v2** : le même compte que
+l'application YoLink, sans bricolage. Non officielle, sans lien avec YoSmart.
+
+> **Version de développement (0.1).** Écrite d'après la documentation
+> officielle (doc.yosmart.com) et la bibliothèque officielle Python
+> `yolink-api` de YoSmart, testée avec des réponses simulées, pas encore avec
+> de vrais appareils. Vos retours sont les bienvenus sur le dépôt GitHub.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Un appareil Gladys par appareil YoLink pris en charge :
 
-## Configuration
+| Appareil YoLink                                 | Dans Gladys                                                      |
+| ----------------------------------------------- | ---------------------------------------------------------------- |
+| Capteur de porte (DoorSensor)                   | ouverture (ouvert/fermé), batterie %                             |
+| Détecteur de mouvement (MotionSensor)           | mouvement, batterie %                                            |
+| Détecteur de fuite (LeakSensor)                 | fuite d'eau, batterie %                                          |
+| Capteur de température et d'humidité (THSensor) | température °C, humidité % (sauf modèles sans sonde), batterie % |
+| Capteur de vibration (VibrationSensor)          | vibration, batterie %                                            |
+| Prise, interrupteur (Outlet, Switch)            | marche/arrêt (commandable), puissance W (prises Energy)          |
+| Multiprise (MultiOutlet)                        | chaque prise en marche/arrêt (commandable)                       |
+| Vanne d'eau (Manipulator, LeakStop, FlowSmart)  | vanne ouverte/fermée (commandable), batterie %                   |
+| Serrure (Lock M1, Lock M2)                      | verrouillée (commandable), batterie %                            |
+| Sirène (Siren)                                  | sirène en marche/arrêt (commandable), batterie %                 |
+| Porte de garage (GarageDoor, Finger)            | porte ouverte/fermée d'après son capteur (commandable)           |
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+Les hubs, télécommandes, thermostats, arrosages et autres types ne sont pas
+encore pris en charge : le bouton **Tester la connexion** indique combien
+d'appareils sont ignorés.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+## Installation
 
-## Actions
+1. Dans l'application YoLink : **Compte** > **Paramètres avancés** >
+   **Identifiants d'accès personnels** (Personal Access Credentials), puis
+   **+** pour en créer un. Notez son **UAID** et sa **clé secrète**.
+2. Installez l'intégration depuis le store de Gladys.
+3. Dans l'onglet **Configuration**, saisissez l'UAID et la clé secrète, puis
+   enregistrez. L'état indique « Connecté à YoLink : 12 appareils.
+   Événements en direct actifs. »
+4. Ouvrez l'onglet **Découverte** et ajoutez les appareils voulus. Leurs
+   valeurs arrivent dès l'ajout.
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+## Sécurité : commandes désactivées par défaut
 
-## Scènes
+Trois commandes restent refusées tant que vous ne les autorisez pas dans la
+configuration :
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+| Option                                     | Désactivée : Gladys peut…                       |
+| ------------------------------------------ | ----------------------------------------------- |
+| Autoriser le déverrouillage des serrures   | verrouiller, jamais déverrouiller               |
+| Autoriser l'ouverture des portes de garage | fermer une porte que son capteur dit ouverte    |
+| Autoriser l'ouverture des vannes d'eau     | fermer une vanne (couper l'eau en cas de fuite) |
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+Une commande refusée affiche un message qui renvoie à l'option. La porte de
+garage YoLink ne connaît qu'une commande « basculer » : sans capteur de porte
+associé, son état est inconnu et même la fermeture demande l'option
+d'ouverture (basculer pourrait l'ouvrir).
 
-## Tableau de bord
+## Comment les valeurs arrivent
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+- **En direct** : l'intégration s'abonne aux événements MQTT de votre maison
+  YoLink. Une porte qui s'ouvre, un mouvement ou une fuite arrivent en une ou
+  deux secondes. Chaque alerte est enregistrée, même deux alertes de suite.
+- **Rafraîchissement complet** : au démarrage puis toutes les 30 minutes
+  (réglable de 10 à 1440), l'intégration relit la liste des appareils et
+  l'état de chacun (une requête par appareil, espacées d'une demi-seconde).
+- Les appareils de la zone Europe (modèles « -EC ») sont lus sur le cloud
+  européen de YoLink, les autres sur le cloud américain, comme le fait
+  l'application.
+
+## Limites d'usage
+
+- YoLink n'autorise par identifiant d'accès que 5 connexions MQTT ouvertes et
+  10 nouvelles connexions par 5 minutes : l'intégration en utilise une par
+  cloud (au plus deux) et n'en ouvre jamais plus de 8 par 5 minutes. N'utilisez
+  pas le même identifiant d'accès dans plusieurs logiciels à la fois (Home
+  Assistant, Gladys…) : créez-en un par logiciel.
+- Si YoLink répond « limite atteinte », l'intégration fait une pause de 15
+  minutes ; en cas d'erreur réseau, elle réessaie après 1, 2, 5, 10 puis 15
+  minutes.
+- Gladys accepte 300 états par minute : au-delà, les valeurs attendent la
+  minute suivante.
+
+## Options
+
+| Option                                       | Défaut   | Rôle                                                 |
+| -------------------------------------------- | -------- | ---------------------------------------------------- |
+| UAID, clé secrète                            | —        | l'identifiant d'accès créé dans l'application YoLink |
+| Autoriser le déverrouillage / garage / vanne | non      | voir « Sécurité »                                    |
+| Intervalle de rafraîchissement complet (min) | 30       | fréquence de relecture complète                      |
+| Langue des noms des fonctionnalités          | Français | noms des fonctionnalités des appareils ajoutés       |
 
 ## Dépannage
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+- **« YoLink a refusé l'UAID ou la clé secrète »** : vérifiez-les (l'identifiant
+  a peut-être été supprimé dans l'application). L'intégration attend une
+  modification ou un clic sur **Tester la connexion**.
+- **Badge `cloud` avec un point orange « Événements en direct interrompus »** :
+  la connexion MQTT est coupée, l'intégration se reconnecte (30 s, puis
+  jusqu'à 5 min). Les valeurs arrivent au plus tard au rafraîchissement
+  suivant.
+- **Badge `injoignable` avec un point orange** : YoLink signale l'appareil
+  hors ligne (piles, portée du hub).
+- **Un appareil n'apparaît pas** : son type n'est pas encore pris en charge ;
+  ouvrez un ticket sur le dépôt GitHub en indiquant son modèle.
+
+## Confidentialité
+
+L'UAID et la clé secrète sont stockés par Gladys comme secrets (la clé n'est
+jamais renvoyée au navigateur). La clé n'est envoyée qu'à
+`api.yosmart.com/open/yolink/token` (HTTPS) pour obtenir un jeton d'accès, qui
+reste en mémoire (rien n'est écrit dans `/data`). Les événements en direct
+passent par le broker MQTT de YoLink sur le port 8003, **sans chiffrement** :
+c'est le seul mode documenté par YoLink (le port 8004 est du WebSocket, lui
+aussi sans TLS). Le jeton d'accès, valable 2 heures, y circule comme nom
+d'utilisateur ; la clé secrète, elle, n'y passe jamais. YoLink est une marque
+de YoSmart ; cette intégration est sans lien avec YoSmart.

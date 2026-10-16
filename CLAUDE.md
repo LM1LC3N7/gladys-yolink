@@ -9,15 +9,17 @@ A Gladys Assistant **external integration**: a Node.js service (Node 22+, ESM,
 no build step) that runs in its own sandboxed Docker container and talks to
 Gladys through
 [`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
-its only runtime dependency. It started from the official JavaScript template.
+and [MQTT.js](https://github.com/mqttjs/MQTT.js) (the YoLink live events), its
+only runtime dependencies. It started from the official JavaScript template;
+the YoLink protocol follows the official library YoSmart-Inc/yolink-api (MIT).
 
 ## Commands
 
 ```bash
 npm install
 npm test                                  # node --test, the built-in runner
-node --test test/devices.test.js          # one file
-node --test --test-name-pattern "plug"    # tests whose name matches
+node --test test/app.test.js              # one file
+node --test --test-name-pattern "lock"    # tests whose name matches
 npm run lint                              # ESLint
 npm run format:check                      # Prettier, as the CI runs it
 npm run format                            # Prettier, fix in place
@@ -31,16 +33,18 @@ pushing.
 ## Architecture
 
 ```
-index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
-src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
+index.js                          SDK wiring only (src/handlers.js registers the handlers)
+src/app.js                        YoLinkApp: refresh, live events, states, commands, badges
+src/client.js                     UAC token (refresh) and the Open API v2 calls
+src/yolink.js                     HTTPS transport, BUDP codes -> YoLinkError (the only HTTP access)
+src/live.js                       MQTT connections per cloud (the only MQTT access)
+src/inventory.js                  device lists and readings (pure)
+src/devices.js                    Gladys devices and states (pure)
+src/publisher.js                  300 states/min, moments queued
+src/config.js                     DEFAULTS (mirror the manifest defaults) + normalization
 gladys-assistant-integration.json manifest: name, config_schema, actions, image...
 docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
+test/                             node --test, SDK fake Gladys + fake YoLink (test/helpers)
 .github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
 ```
 
