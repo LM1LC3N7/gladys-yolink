@@ -8,7 +8,7 @@
 //   temperature, humidity, battery, power.
 // -----------------------------------------------------------------------------
 
-import { ENDPOINTS, KINDS, MQTT_EVENTS, MQTT_RECORD_EVENT } from './constants.js';
+import { ENDPOINTS, KINDS, MQTT_EVENTS, MQTT_RECORD_EVENT, VALVELESS_MODELS } from './constants.js';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = (value) => (typeof value === 'string' && value !== '' ? value : undefined);
@@ -47,7 +47,8 @@ export function readInventory(usList, euList = []) {
     const token =
       endpoint === ENDPOINTS.EU ? (euTokens.get(id) ?? text(raw.token)) : text(raw.token);
     const kind = KINDS[type];
-    if (!kind || !token) {
+    const valveless = kind === 'valve' && VALVELESS_MODELS.includes(modelOf(raw.modelName));
+    if (!kind || !token || valveless) {
       skipped.push({ id, type });
       continue;
     }

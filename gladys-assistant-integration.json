@@ -21,8 +21,8 @@
         "fr": "Votre compte YoLink"
       },
       "description": {
-        "en": "Brings your YoLink devices into Gladys through the official YoLink Open API v2 (a YoLink hub is required): door, motion, water leak, temperature and humidity, and vibration sensors, plugs, switches and power strips, water valves, locks, sirens and garage doors, with their batteries. Changes arrive live (MQTT), and everything is read again every 30 minutes. In the YoLink app, open Account > Advanced Settings > Personal Access Credentials, add one, and copy its UAID and secret key here. Unlocking, opening the garage door and opening a water valve stay off until you allow them below. Unofficial, not affiliated with YoSmart.",
-        "fr": "Amène vos appareils YoLink dans Gladys par l'API officielle YoLink Open API v2 (un hub YoLink est nécessaire) : capteurs de porte, de mouvement, de fuite d'eau, de température et d'humidité, de vibration, prises, interrupteurs et multiprises, vannes d'eau, serrures, sirènes et portes de garage, avec leurs batteries. Les changements arrivent en direct (MQTT), et tout est relu toutes les 30 minutes. Dans l'application YoLink, ouvrez Compte > Paramètres avancés > Identifiants d'accès personnels, ajoutez-en un et copiez ici son UAID et sa clé secrète. Le déverrouillage, l'ouverture du garage et l'ouverture d'une vanne restent désactivés tant que vous ne les autorisez pas ci-dessous. Non officiel, sans lien avec YoSmart."
+        "en": "Brings your YoLink devices into Gladys through the official YoLink Open API v2 (a YoLink hub is required): door, motion, water leak, temperature and humidity, and vibration sensors, plugs, switches and power strips, water valves, locks, sirens and garage doors, with their batteries. Changes arrive live (MQTT), and everything is read again every 30 minutes. In the YoLink app, open Account > Advanced Settings > Personal Access Credentials, add one, and copy its UAID and secret key here. Unlocking, opening the garage door and opening or closing a water valve stay off until you allow them below. Unofficial, not affiliated with YoSmart.",
+        "fr": "Amène vos appareils YoLink dans Gladys par l'API officielle YoLink Open API v2 (un hub YoLink est nécessaire) : capteurs de porte, de mouvement, de fuite d'eau, de température et d'humidité, de vibration, prises, interrupteurs et multiprises, vannes d'eau, serrures, sirènes et portes de garage, avec leurs batteries. Les changements arrivent en direct (MQTT), et tout est relu toutes les 30 minutes. Dans l'application YoLink, ouvrez Compte > Paramètres avancés > Identifiants d'accès personnels, ajoutez-en un et copiez ici son UAID et sa clé secrète. Le déverrouillage, l'ouverture du garage et l'ouverture ou la fermeture d'une vanne restent désactivés tant que vous ne les autorisez pas ci-dessous. Non officiel, sans lien avec YoSmart."
       },
       "links": [
         {
@@ -99,11 +99,53 @@
         "fr": "Autoriser l'ouverture des vannes d'eau depuis Gladys"
       },
       "description": {
-        "en": "Off by default: Gladys can close a valve (to stop a leak), never open one.",
-        "fr": "Désactivé par défaut : Gladys peut fermer une vanne (pour arrêter une fuite), jamais en ouvrir une."
+        "en": "Off by default: Gladys never opens a valve.",
+        "fr": "Désactivé par défaut : Gladys n'ouvre jamais une vanne."
       },
       "required": false,
       "default": false
+    },
+    {
+      "key": "allow_valve_close",
+      "type": "boolean",
+      "label": {
+        "en": "Allow closing the water valves from Gladys",
+        "fr": "Autoriser la fermeture des vannes d'eau depuis Gladys"
+      },
+      "description": {
+        "en": "Off by default: turn it on to cut the water from a scene (on a leak, for example).",
+        "fr": "Désactivé par défaut : activez-le pour couper l'eau depuis une scène (sur une fuite, par exemple)."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "allow_siren_stop",
+      "type": "boolean",
+      "label": {
+        "en": "Allow stopping the sirens from Gladys",
+        "fr": "Autoriser l'arrêt des sirènes depuis Gladys"
+      },
+      "description": {
+        "en": "On by default. Off: Gladys can start a siren, never stop it (it stops after its own alarm duration).",
+        "fr": "Activé par défaut. Désactivé : Gladys peut déclencher une sirène, jamais l'arrêter (elle s'arrête après sa propre durée d'alarme)."
+      },
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "live_events",
+      "type": "boolean",
+      "label": {
+        "en": "Live events (unencrypted MQTT)",
+        "fr": "Événements en direct (MQTT non chiffré)"
+      },
+      "description": {
+        "en": "On by default. YoLink's MQTT has no encryption: the access token travels in clear and lets anyone watching your network command every YoLink device (unlocking included) for about 2 hours. Off: only the HTTPS reads remain (every refresh interval).",
+        "fr": "Activé par défaut. Le MQTT de YoLink n'est pas chiffré : le jeton d'accès y circule en clair et permet à qui observe votre réseau de commander tous les appareils YoLink (déverrouillage compris) pendant environ 2 heures. Désactivé : seules les lectures HTTPS restent (à chaque rafraîchissement)."
+      },
+      "required": false,
+      "default": true
     },
     {
       "key": "refresh_interval",

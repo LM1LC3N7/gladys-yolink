@@ -18,13 +18,22 @@ the notes of the version's GitHub Release.
 - Door, motion, water leak, temperature and humidity, and vibration sensors,
   with their batteries.
 - Plugs and switches (with the power of the Energy plugs), each socket of the
-  power strips, water valves, Lock M1 and M2 locks, sirens and garage doors
-  (state from their paired door sensor), settable from Gladys.
-- Unlocking, opening a garage door and opening a water valve are off by
-  default, each behind its own option.
-- Live events over MQTT on the US and EU clouds, with a full refresh every 30
-  minutes (10 to 1440); pauses after errors and when YoLink reports its limits
-  reached; badges for offline devices and paused live events.
+  power strips (the USB ports first on the YS6801), water valves, Lock M1 and
+  M2 locks, sirens and garage doors (state from their paired door sensor),
+  settable from Gladys.
+- Unlocking, opening a garage door, opening a water valve and closing one are
+  off by default, each behind its own option; stopping a siren has its own
+  option too (on by default).
+- Garage doors: the sensor is read again just before a toggle (refused when
+  offline or without a state), and a second toggle within a minute is ignored
+  until the sensor reports a change.
+- Live events over MQTT on the US and EU clouds, with an option to turn them
+  off (YoLink's MQTT is not encrypted), and a full refresh every 30 minutes
+  (10 to 1440); pauses after errors and when YoLink reports its limits
+  reached (the Discovery scan and the test button wait too); badges for
+  offline devices and paused live events.
+- A clear message when a LeakStop in power-saving mode does not answer; the
+  FlowSmart Meter, which has no valve, is skipped.
 - "Test the connection" button with a summary of the account.
 - Feature names in French or English.
 

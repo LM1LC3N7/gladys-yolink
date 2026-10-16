@@ -10,7 +10,13 @@
 import { DEVICE_TRANSPORTS, createLogger } from '@gladysassistant/integration-sdk';
 import { YoLinkClient } from './client.js';
 import { normalizeConfig } from './config.js';
-import { ENDPOINTS, MOMENT_EVENTS, MQTT_RECORD_EVENT, TIMINGS } from './constants.js';
+import {
+  ENDPOINTS,
+  LEAK_STOP_MODELS,
+  MOMENT_EVENTS,
+  MQTT_RECORD_EVENT,
+  TIMINGS,
+} from './constants.js';
 import {
   MOMENT_ROLES,
   buildDevices,
@@ -66,6 +72,7 @@ export class YoLinkApp {
       invalidateToken: () => this.client.invalidate(),
       onReport: (id, event, data) => this.report(id, event, data),
       onChange: () => this.liveChanged(),
+      onRefused: (err) => this.failed(err).catch((e) => this.logger.warn(`YoLink: ${e.message}`)),
       logger,
       now,
       timers,
@@ -82,6 +89,10 @@ export class YoLinkApp {
     this.homeId = undefined;
     this.readAt = undefined;
     this.nextRefreshAt = 0;
+    /** Until when YoLink asked to slow down: no scan or test read before. */
+    this.pausedUntil = 0;
+    /** garageId -> { until, door }: a toggle just sent, and the sensor state then */
+    this.garageGuards = new Map();
     this.published = undefined;
     /** deviceId -> badge last published (JSON) */
     this.transports = new Map();
@@ -136,6 +147,8 @@ export class YoLinkApp {
     this.homeId = undefined;
     this.readAt = undefined;
     this.nextRefreshAt = 0;
+    this.pausedUntil = 0;
+    this.garageGuards.clear();
     this.published = undefined;
     this.transports.clear();
     this.refused = false;
@@ -181,6 +194,24 @@ export class YoLinkApp {
     if (next.language !== previous.language) {
       await this.publishDevices();
     }
+    if (next.liveEvents !== previous.liveEvents && this.readAt !== undefined && !this.refused) {
+      this.syncLive();
+      await this.liveChanged();
+    }
+  }
+
+  /** Live events on (configuration) -> the MQTT connections of the clouds in use; off -> none. */
+  syncLive() {
+    if (this.config.liveEvents && this.homeId !== undefined) {
+      this.live.start(this.homeId, this.endpoints());
+    } else {
+      this.live.stop();
+    }
+  }
+
+  /** The live events for the messages: true, false (connecting) or 'off'. */
+  liveState() {
+    return this.config.liveEvents ? this.live.connected : 'off';
   }
 
   async setStatus(connected, message) {
@@ -249,7 +280,7 @@ export class YoLinkApp {
       this.offline = false;
       await this.publishDevices();
       this.queueAll();
-      this.live.start(this.homeId, this.endpoints());
+      this.syncLive();
       await this.setStatus(true, this.statusMessage());
     } catch (err) {
       if (generation !== this.generation) {
@@ -303,7 +334,7 @@ export class YoLinkApp {
   }
 
   statusMessage() {
-    return T.connected(this.devices.size, this.live.connected);
+    return T.connected(this.devices.size, this.liveState());
   }
 
   async failed(err) {
@@ -318,6 +349,7 @@ export class YoLinkApp {
     let wait;
     if (err.kind === 'rate_limited') {
       wait = TIMINGS.rateLimitPause;
+      this.pausedUntil = this.now() + wait;
       await this.setStatus(this.readAt !== undefined, T.rateLimited(age(wait)));
     } else {
       wait = TIMINGS.backoff[Math.min(this.failures, TIMINGS.backoff.length - 1)];
@@ -347,6 +379,8 @@ export class YoLinkApp {
     const moment = MOMENT_EVENTS.some((suffix) => event.endsWith(`.${suffix}`));
     this.queue(device, { moment });
     for (const garage of this.garagesOf(device)) {
+      // The sensor reported: a guard against a second toggle ends on a change.
+      this.garageMoving(garage);
       this.queue(garage, { moment });
     }
     if (device.kind === 'multi-outlet') {
@@ -459,7 +493,12 @@ export class YoLinkApp {
     if (this.online.get(device.id) === false) {
       return { transport: DEVICE_TRANSPORTS.UNREACHABLE, degraded: true, message: T.offline };
     }
-    if (this.homeId !== undefined && this.readAt !== undefined && !this.live.connected) {
+    if (
+      this.config.liveEvents &&
+      this.homeId !== undefined &&
+      this.readAt !== undefined &&
+      !this.live.connected
+    ) {
       return { transport: DEVICE_TRANSPORTS.CLOUD, degraded: true, message: T.liveDown };
     }
     return { transport: DEVICE_TRANSPORTS.CLOUD };
@@ -511,6 +550,7 @@ export class YoLinkApp {
     if (
       this.client.hasCredentials &&
       !this.refused &&
+      this.now() >= this.pausedUntil &&
       (this.readAt === undefined || this.now() - this.readAt >= TIMINGS.testCooldown)
     ) {
       await this.refresh();
@@ -542,6 +582,9 @@ export class YoLinkApp {
     if (!device) {
       throw new Error('Unknown YoLink device: wait for the first reading of the account');
     }
+    if (role === 'garage' && device.kind === 'garage') {
+      await this.refreshGarageDoor(device);
+    }
     const command = this.commandOf(device, role, on === 1, target.index);
     if (!command) {
       return;
@@ -550,10 +593,23 @@ export class YoLinkApp {
     try {
       answer = await this.client.invoke(device, command.method, command.params);
     } catch (err) {
+      if (
+        err.kind === 'device' &&
+        device.kind === 'valve' &&
+        LEAK_STOP_MODELS.includes(device.model)
+      ) {
+        throw new Error(word(T.leakStopAsleep, this.config.language), { cause: err });
+      }
       // The ack shows the message: YoLink's own, with its code.
       throw new Error(errorReason(err), { cause: err });
     }
     this.logger.info(`${deviceName(device, 'en')}: ${command.method} ${command.log}`);
+    if (role === 'garage') {
+      this.garageGuards.set(device.id, {
+        until: this.now() + TIMINGS.garageGuard,
+        door: this.garageState(device),
+      });
+    }
     const fromAnswer = flatten(answer);
     const reading = command.optimistic
       ? { ...command.optimistic, ...fromAnswer }
@@ -568,13 +624,48 @@ export class YoLinkApp {
   }
 
   /**
+   * Just before a garage toggle: the sensor of the door read again, so the
+   * toggle never relies on an old state. A sensor offline or without a state
+   * leaves the door unknown, and commandOf() refuses.
+   */
+  async refreshGarageDoor(garage) {
+    const door = this.doorOf(garage);
+    if (!door) {
+      return;
+    }
+    try {
+      await this.readState(door);
+    } catch (err) {
+      this.online.set(door.id, false);
+      this.logger.info(`${deviceName(door, 'en')}: no state (${errorReason(err)})`);
+    }
+    for (const g of this.garagesOf(door)) {
+      this.queue(g);
+    }
+  }
+
+  /** A garage toggle in progress: the guard holds until it expires or the sensor reports a change. */
+  garageMoving(garage) {
+    const guard = this.garageGuards.get(garage.id);
+    if (!guard) {
+      return false;
+    }
+    if (this.now() >= guard.until || this.garageState(garage) !== guard.door) {
+      this.garageGuards.delete(garage.id);
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * The BDDP of a command, after the safety options: `{ method, params, log,
    * optimistic? }`, or null when there is nothing to do. `optimistic`: the
    * reading shown before YoLink reports it (the harmless commands only; a
    * lock, a valve or a garage door wait for the device to report).
    */
   commandOf(device, role, on, index) {
-    const { allowUnlock, allowGarageOpen, allowValveOpen } = this.config;
+    const { allowUnlock, allowGarageOpen, allowValveOpen, allowValveClose, allowSirenStop } =
+      this.config;
     if (device.kind !== KIND_OF_ROLE[role] || (role === 'socket' && !(index >= 0 && index < 8))) {
       throw new Error(`${role} is not a feature of this ${device.type}`);
     }
@@ -603,6 +694,9 @@ export class YoLinkApp {
         if (on && !allowValveOpen) {
           throw this.denied('valve');
         }
+        if (!on && !allowValveClose) {
+          throw this.denied('valveClose');
+        }
         const state = on ? 'open' : 'close';
         return {
           method: 'setState',
@@ -624,6 +718,9 @@ export class YoLinkApp {
         };
       }
       case 'siren':
+        if (!on && !allowSirenStop) {
+          throw this.denied('sirenStop');
+        }
         return {
           method: 'setState',
           params: { state: { alarm: on } },
@@ -631,16 +728,23 @@ export class YoLinkApp {
           optimistic: { state: on ? 'alert' : 'normal' },
         };
       case 'garage': {
-        const current = this.garageState(device);
-        if ((current === 'open') === on && current !== undefined) {
-          return null;
-        }
+        const door = this.doorOf(device);
+        const current =
+          door && this.online.get(door.id) !== false ? this.garageState(device) : undefined;
         if (on && !allowGarageOpen) {
           throw this.denied('garage');
         }
-        if (!on && current === undefined && !allowGarageOpen) {
-          // A toggle on a door of unknown state may open it.
+        if (current === undefined) {
+          // A toggle on a door of unknown state may do the opposite.
           throw this.denied('garageUnknown');
+        }
+        if ((current === 'open') === on) {
+          return null;
+        }
+        if (this.garageMoving(device)) {
+          // A second toggle while the door moves would reverse it.
+          this.logger.info(`${deviceName(device, 'en')}: toggle ignored, the door is moving`);
+          return null;
         }
         return { method: 'toggle', params: undefined, log: on ? '(open)' : '(close)' };
       }
@@ -662,6 +766,10 @@ export class YoLinkApp {
         fr: `${T.test.cooldown.fr} ${summary.fr}`,
       };
     }
+    if (this.now() < this.pausedUntil) {
+      // YoLink asked to slow down: the button does not read before the pause ends.
+      return T.rateLimited(age(this.pausedUntil - this.now()));
+    }
     this.lastTestAt = this.now();
     // One token request per click: the button is how refused credentials are retried.
     this.refused = false;
@@ -676,6 +784,6 @@ export class YoLinkApp {
   }
 
   summary() {
-    return T.test.summary(this.devices.size, this.skipped.length, this.live.connected);
+    return T.test.summary(this.devices.size, this.skipped.length, this.liveState());
   }
 }

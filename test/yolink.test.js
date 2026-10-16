@@ -51,7 +51,22 @@ test('token answers', () => {
     expiresAt: now + 7200_000,
   });
   assert.equal(parseToken('{"access_token":"a"}', now).expiresAt, now + 2 * 3600_000);
-  assert.equal(parseToken('{"error":"invalid_client"}', now), null);
+  assert.throws(() => parseToken('{"error":"invalid_client"}', now), { kind: 'refused' });
+  // A 200 with a BUDP code: refused for the credential codes only.
+  for (const code of ['000106', '010101', '010102', '010103']) {
+    assert.throws(() => parseToken(JSON.stringify({ code, desc: 'x' }), now), {
+      kind: 'refused',
+      code,
+    });
+  }
+  assert.throws(() => parseToken('{"code":"010000","desc":"Service is not available"}', now), {
+    kind: 'unavailable',
+  });
+  assert.throws(() => parseToken('{"code":"010301"}', now), { kind: 'rate_limited' });
+  assert.throws(() => parseToken('{}', now), { kind: 'bad_response' });
+  assert.equal(httpError(400, { token: true }).kind, 'refused');
+  assert.equal(httpError(403, { token: true }).kind, 'refused');
+  assert.equal(httpError(500, { token: true }).kind, 'unavailable');
   assert.equal(httpError(401, { token: true }).kind, 'refused');
   assert.equal(httpError(401).kind, 'unauthorized');
   assert.equal(httpError(429).kind, 'rate_limited');
@@ -81,6 +96,12 @@ test('the inventory: EU tokens, parents, unsupported types', () => {
   // Broken rows and duplicates are dropped.
   const again = readInventory([...usDevices(), { type: 'Lock' }, usDevices()[0], null]);
   assert.equal(again.devices.length, 16);
+  // A FlowSmart meter (YS5007) has no valve: skipped.
+  const meter = readInventory([
+    { deviceId: 'm1', type: 'WaterMeterController', token: 't', modelName: 'YS5007-UC' },
+  ]);
+  assert.equal(meter.devices.length, 0);
+  assert.deepEqual(meter.skipped, [{ id: 'm1', type: 'WaterMeterController' }]);
 });
 
 test('readings: nested or flat answers, the readers', () => {

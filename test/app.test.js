@@ -253,9 +253,15 @@ test('locks: locking always works, unlocking only when allowed', async (t) => {
   assert.equal(last(gladys, IDS.lock, 'lock'), 0, 'the answer of the lock');
 });
 
-test('valves: closing always works, opening only when allowed', async (t) => {
+test('valves: closing and opening only when allowed', async (t) => {
   const { gladys, server } = await setup(t);
   await createAll(gladys);
+  const closeRefused = await set(gladys, IDS.valve, 'valve', 0);
+  assert.equal(closeRefused.success, false);
+  assert.match(closeRefused.error, /fermeture des vannes/);
+  assert.equal(server.calls('Manipulator.setState').length, 0);
+
+  await gladys.fake.configUpdated({ ...CONFIG, allow_valve_close: true });
   assert.deepEqual(await set(gladys, IDS.valve, 'valve', 0), { success: true });
   assert.deepEqual(server.calls('Manipulator.setState')[0].body.params, { state: 'close' });
   assert.equal(last(gladys, IDS.valve, 'valve'), 0);
@@ -271,13 +277,32 @@ test('valves: closing always works, opening only when allowed', async (t) => {
   });
   assert.equal(last(gladys, IDS.leakStop, 'valve'), 0);
 
-  await gladys.fake.configUpdated({ ...CONFIG, allow_valve_open: 'true' });
+  await gladys.fake.configUpdated({ ...CONFIG, allow_valve_close: true, allow_valve_open: 'true' });
   assert.deepEqual(await set(gladys, IDS.valve, 'valve', 1), { success: true });
   assert.equal(last(gladys, IDS.valve, 'valve'), 1);
 });
 
+test('a LeakStop that does not answer: the class A message', async (t) => {
+  const server = fakeYoLink();
+  const leakStop = server.us.find((d) => d.deviceId === IDS.leakStop);
+  leakStop.modelName = 'YS5009-UC';
+  const { gladys } = await setup(t, { server, config: { ...CONFIG, allow_valve_close: true } });
+  await createAll(gladys);
+  server.unreachable.add(IDS.leakStop);
+  const ack = await set(gladys, IDS.leakStop, 'valve', 0);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /classe A/);
+});
+
+test('a FlowSmart meter (YS5007) has no valve', async (t) => {
+  const server = fakeYoLink();
+  server.us.find((d) => d.deviceId === IDS.leakStop).modelName = 'YS5007-UC';
+  const { gladys } = await setup(t, { server });
+  assert.equal(deviceOf(gladys, dev(IDS.leakStop)), undefined);
+});
+
 test('garage doors: closing an open door works, opening only when allowed', async (t) => {
-  const { gladys, server, mqtt, advance } = await setup(t);
+  const { gladys, server, advance } = await setup(t);
   await createAll(gladys);
   // Closed already: nothing to do.
   assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
@@ -287,27 +312,128 @@ test('garage doors: closing an open door works, opening only when allowed', asyn
   assert.match(refused.error, /garage/);
   assert.equal(server.calls('GarageDoor.toggle').length, 0);
 
-  mqtt.publish('US', report(IDS.garageSensor, 'DoorSensor.Alert', { state: 'open' }));
-  await advance(1000);
+  // The sensor is read again just before the toggle.
+  server.states[IDS.garageSensor].state = 'open';
+  const reads = server.calls('DoorSensor.fetchState').length;
   assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  assert.equal(server.calls('DoorSensor.fetchState').length, reads + 1);
   assert.equal(server.calls('GarageDoor.toggle').length, 1);
 
+  await advance(61_000);
   await gladys.fake.configUpdated({ ...CONFIG, allow_garage_open: true });
-  mqtt.publish('US', report(IDS.garageSensor, 'DoorSensor.Alert', { state: 'closed' }));
-  await advance(1000);
   assert.deepEqual(await set(gladys, IDS.garage, 'garage', 1), { success: true });
   assert.equal(server.calls('GarageDoor.toggle').length, 2);
 });
 
-test('a garage door without a sensor: closing needs the opening allowed', async (t) => {
+test('garage doors: a second toggle while the door moves is ignored', async (t) => {
+  const server = fakeYoLink();
+  server.doorMoves = false;
+  server.states[IDS.garageSensor].state = 'open';
+  const { gladys, advance, mqtt } = await setup(t, { server });
+  await createAll(gladys);
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  await advance(5000);
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  assert.equal(server.calls('GarageDoor.toggle').length, 1, 'one toggle for two "close"');
+  // 60 s later, the guard is over.
+  await advance(56_000);
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  assert.equal(server.calls('GarageDoor.toggle').length, 2);
+  // A change reported by the sensor ends the guard at once.
+  server.states[IDS.garageSensor].state = 'closed';
+  mqtt.publish('US', report(IDS.garageSensor, 'DoorSensor.Alert', { state: 'closed' }));
+  await advance(1000);
+  server.states[IDS.garageSensor].state = 'open';
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  assert.equal(server.calls('GarageDoor.toggle').length, 3);
+});
+
+test('garage doors: a sensor offline refuses the command', async (t) => {
+  const server = fakeYoLink();
+  server.states[IDS.garageSensor].state = 'open';
+  const { gladys } = await setup(t, { server, config: { ...CONFIG, allow_garage_open: true } });
+  await createAll(gladys);
+  server.unreachable.add(IDS.garageSensor);
+  const refused = await set(gladys, IDS.garage, 'garage', 0);
+  assert.equal(refused.success, false);
+  assert.match(refused.error, /inconnu/);
+  assert.equal(server.calls('GarageDoor.toggle').length, 0);
+});
+
+test('a garage door without a sensor: every toggle is refused', async (t) => {
   const server = fakeYoLink();
   server.us = server.us.filter((d) => d.deviceId !== IDS.garageSensor);
-  const { gladys } = await setup(t, { server });
+  const { gladys } = await setup(t, { server, config: { ...CONFIG, allow_garage_open: true } });
   await createAll(gladys);
   const refused = await set(gladys, IDS.garage, 'garage', 0);
   assert.equal(refused.success, false);
   assert.match(refused.error, /inconnu/);
   assert.equal(server.calls('GarageDoor.toggle').length, 0);
+});
+
+test('sirens: stopping can be turned off', async (t) => {
+  const { gladys, server } = await setup(t, { config: { ...CONFIG, allow_siren_stop: false } });
+  await createAll(gladys);
+  assert.deepEqual(await set(gladys, IDS.siren, 'siren', 1), { success: true });
+  const refused = await set(gladys, IDS.siren, 'siren', 0);
+  assert.equal(refused.success, false);
+  assert.match(refused.error, /arrêt des sirènes/);
+  assert.equal(server.calls('Siren.setState').length, 1);
+});
+
+test('live events off: no MQTT, HTTPS reads only', async (t) => {
+  const { gladys, mqtt, app } = await setup(t, { config: { ...CONFIG, live_events: false } });
+  await createAll(gladys);
+  assert.equal(mqtt.connections.length, 0);
+  assert.match(gladys.fake.connectionStatus.message.en, /Live events off/);
+  assert.equal(badgeOf(gladys, IDS.door).degraded, undefined);
+  await gladys.fake.configUpdated({ ...CONFIG, live_events: true });
+  await settle();
+  assert.equal(mqtt.connections.length, 2);
+  assert.equal(app.live.connected, true);
+  await gladys.fake.configUpdated({ ...CONFIG, live_events: false });
+  await settle();
+  assert.ok(mqtt.connections.every((c) => c.client.ended));
+});
+
+test('credentials refused while the live events reconnect: everything stops', async (t) => {
+  const { gladys, server, mqtt, app, advance } = await setup(t);
+  server.tokens.clear();
+  server.refreshTokens.clear();
+  server.secret = 'changed-in-the-app';
+  app.client.invalidate();
+  mqtt.drop('US');
+  await advance(31_000);
+  assert.match(gladys.fake.connectionStatus.message.en, /refused the UAID or the secret key/);
+  const count = mqtt.connections.length;
+  assert.ok(mqtt.connections.every((c) => c.client.ended));
+  await advance(10 * MINUTE);
+  assert.equal(mqtt.connections.length, count, 'no retry');
+  assert.equal(
+    server.tokenRequests().filter((r) => r.body.grant_type === 'client_credentials').length,
+    2,
+  );
+});
+
+test('the power strip channels: USB ports first on the YS6801', async (t) => {
+  const { gladys } = await setup(t);
+  const names = deviceOf(gladys, dev(IDS.strip)).features.map((f) => f.name);
+  assert.deepEqual(names, ['Ports USB', 'Prise 1', 'Prise 2', 'Prise 3', 'Prise 4']);
+});
+
+test('the power strip channels of other models start at 1', async (t) => {
+  const server = fakeYoLink();
+  server.us.find((d) => d.deviceId === IDS.strip).modelName = 'YS6802-UC';
+  server.states[IDS.strip].state = ['open', 'closed'];
+  const { gladys } = await setup(t, { server });
+  const strip = deviceOf(gladys, dev(IDS.strip));
+  assert.deepEqual(
+    strip.features.map((f) => [f.external_id.split(':').at(-1), f.name]),
+    [
+      ['socket-0', 'Prise 1'],
+      ['socket-1', 'Prise 2'],
+    ],
+  );
 });
 
 test('a command YoLink refuses fails with its message', async (t) => {
@@ -405,7 +531,12 @@ test('limits reached: a 15-minute pause', async (t) => {
   await advance(MINUTE);
   assert.match(gladys.fake.connectionStatus.message.en, /limit is reached: pausing for 15 min/);
   const tried = server.calls('Home.getDeviceList').length;
-  await advance(14 * MINUTE);
+  // Neither the Discovery scan nor the test button reads during the pause.
+  await advance(MINUTE);
+  await gladys.fake.scanRequest();
+  const ack = await gladys.fake.action(ACTIONS.TEST_CONNECTION, {});
+  assert.match(ack.data.message.en, /limit is reached: pausing for 14 min/);
+  await advance(13 * MINUTE);
   assert.equal(server.calls('Home.getDeviceList').length, tried);
   await advance(2 * MINUTE);
   assert.ok(server.calls('Home.getDeviceList').length > tried);
@@ -446,16 +577,24 @@ test('MQTT: reconnects after a drop, with a fresh connection and the badge degra
   assert.equal(badgeOf(gladys, IDS.door).degraded, undefined);
 });
 
-test('MQTT: never more than 8 connections in 5 minutes', async (t) => {
-  const server = fakeYoLink();
-  const { mqtt, advance } = await setup(t, { server });
-  // A broker that refuses every connection.
-  server.tokens.clear();
-  mqtt.drop('US');
-  mqtt.drop('EU');
-  await advance(5 * MINUTE);
-  const opened = mqtt.connections.filter((c) => c.options.username).length;
-  assert.ok(opened <= 8 + 2, `${opened} connections`);
+test('MQTT: no sliding 5-minute window with more than 8 connections', async (t) => {
+  const { mqtt, advance } = await setup(t);
+  // A flapping broker: every connection is dropped a second after it opens,
+  // which resets the backoff each time.
+  for (let second = 0; second < 20 * 60; second += 1) {
+    for (const endpoint of ['US', 'EU']) {
+      if (mqtt.live(endpoint)) {
+        mqtt.drop(endpoint);
+      }
+    }
+    await advance(1000);
+  }
+  const times = mqtt.connections.map((c) => c.at).sort((a, b) => a - b);
+  assert.ok(times.length > 10, `${times.length} connections`);
+  for (const start of times) {
+    const inWindow = times.filter((at) => at >= start && at < start + 5 * MINUTE).length;
+    assert.ok(inWindow <= 8, `${inWindow} connections in the 5 minutes after ${start}`);
+  }
 });
 
 test('a Gladys restart resends the Discovery list without reading YoLink again', async (t) => {

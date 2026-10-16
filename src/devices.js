@@ -97,6 +97,21 @@ export function socketsOf(device, reading = {}) {
   return Math.min(count, MAX_SOCKETS);
 }
 
+/**
+ * The name of a channel. On the YS6801 power strip, channel 0 is the USB ports
+ * and channels 1–4 are sockets 1–4; elsewhere channel i is socket i + 1.
+ */
+export function socketName(device, channel, language) {
+  if (USB_FIRST_MODELS.includes(device.model)) {
+    return channel === 0
+      ? word(FEATURE_NAMES.usb, language)
+      : `${word(FEATURE_NAMES.socket, language)} ${channel}`;
+  }
+  return `${word(FEATURE_NAMES.socket, language)} ${channel + 1}`;
+}
+
+const USB_FIRST_MODELS = ['YS6801'];
+
 const BATTERY_KINDS = ['door', 'motion', 'leak', 'climate', 'vibration', 'valve', 'lock', 'siren'];
 
 function featuresOf(ids, device, reading, language) {
@@ -129,8 +144,9 @@ function featuresOf(ids, device, reading, language) {
       break;
     case 'multi-outlet':
       for (let i = 0; i < socketsOf(device, reading); i += 1) {
-        const name = `${word(FEATURE_NAMES.socket, language)} ${i + 1}`;
-        features.push(feature(ids, `socket-${i}`, language, 'socket', name));
+        features.push(
+          feature(ids, `socket-${i}`, language, 'socket', socketName(device, i, language)),
+        );
       }
       break;
     case 'valve':

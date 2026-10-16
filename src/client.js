@@ -54,11 +54,7 @@ export class YoLinkClient {
     if (answer.status < 200 || answer.status >= 300) {
       throw httpError(answer.status, { token: true });
     }
-    const session = parseToken(answer.body, this.now());
-    if (!session) {
-      throw new YoLinkError('refused', 'UAID or secret key refused');
-    }
-    return session;
+    return parseToken(answer.body, this.now());
   }
 
   /** A new access token; one request at a time, the others wait for it. */

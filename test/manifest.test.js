@@ -47,6 +47,22 @@ test('the store basics', () => {
   }
 });
 
+test('no mojibake (UTF-8 read as Latin-1) in the manifest and the docs', () => {
+  // "Ã©" for "é", "Â " for a no-break space, "â€" for a dash…
+  const mojibake = /[ÂÃ][\u0080-¿€]/;
+  for (const path of [
+    'gladys-assistant-integration.json',
+    'docs/en.md',
+    'docs/fr.md',
+    'README.md',
+  ]) {
+    const text = read(path);
+    assert.ok(!text.startsWith('﻿'), `${path} starts with a BOM`);
+    const match = mojibake.exec(text);
+    assert.equal(match, null, `${path}: mojibake "${match?.[0]}" at ${match?.index}`);
+  }
+});
+
 test('every text is in English and French', () => {
   for (const [path, text] of texts(manifest)) {
     for (const lang of ['en', 'fr']) {
@@ -76,9 +92,21 @@ test('the configuration matches the code', () => {
     [fields.refresh_interval.min, fields.refresh_interval.max],
     [REFRESH_INTERVAL.min, REFRESH_INTERVAL.max],
   );
-  for (const key of ['allow_unlock', 'allow_garage_open', 'allow_valve_open']) {
+  for (const key of [
+    'allow_unlock',
+    'allow_garage_open',
+    'allow_valve_open',
+    'allow_valve_close',
+  ]) {
     assert.equal(fields[key].type, 'boolean');
     assert.equal(fields[key].default, false, `${key} is off by default`);
+  }
+  for (const key of ['allow_siren_stop', 'live_events']) {
+    assert.equal(fields[key].type, 'boolean');
+    assert.equal(fields[key].default, true, `${key} is on by default (pending Louis)`);
+  }
+  for (const lang of ['en', 'fr']) {
+    assert.match(fields.live_events.description[lang], /2 h/);
   }
   const intro = fields.intro;
   assert.equal(intro.type, 'section');

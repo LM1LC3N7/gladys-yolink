@@ -15,6 +15,8 @@ import { LIMITS, TIMINGS } from './constants.js';
 import { acceptedEvent } from './inventory.js';
 
 const FIVE_MINUTES = 5 * 60_000;
+/** Token errors that only a change of the configuration fixes. */
+const REFUSED = new Set(['refused', 'no_credentials']);
 
 /** Opens one MQTT connection (the only MQTT network access). */
 export function mqttConnect(endpoint, options) {
@@ -43,6 +45,7 @@ export class LiveEvents {
     invalidateToken = () => {},
     onReport,
     onChange = () => {},
+    onRefused = () => {},
     logger,
     now = Date.now,
     timers = globalThis,
@@ -53,6 +56,7 @@ export class LiveEvents {
     this.invalidateToken = invalidateToken;
     this.onReport = onReport;
     this.onChange = onChange;
+    this.onRefused = onRefused;
     this.logger = logger;
     this.now = now;
     this.timers = timers;
@@ -156,6 +160,11 @@ export class LiveEvents {
       this.logger.warn(
         `YoLink live events (${link.endpoint.name}): no access token, ${err.message}`,
       );
+      if (REFUSED.has(err?.kind)) {
+        // Refused credentials: no retry, the app stops everything until the configuration changes.
+        this.onRefused(err);
+        return;
+      }
       this.retry(link);
       return;
     }

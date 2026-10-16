@@ -4,9 +4,9 @@
 **YoLink** (YoSmart), through the official **YoLink Open API v2**: door,
 motion, water leak, temperature and humidity, and vibration sensors, plugs,
 switches and power strips, water valves, locks, sirens and garage doors, with
-live events over MQTT. Unlocking, opening a garage door and opening a water
-valve are off until the user allows them. Unofficial, not affiliated with
-YoSmart.
+live events over MQTT. Unlocking, opening a garage door and opening or
+closing a water valve are off until the user allows them. Unofficial, not
+affiliated with YoSmart.
 
 User documentation: [docs/en.md](docs/en.md) · [docs/fr.md](docs/fr.md).
 
@@ -40,12 +40,19 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (YoLinkApp) ⇄ src/client.js 
   and our own reconnection (30 s up to 5 min, at most 8 new connections per 5
   minutes: YoLink allows 10). The events yolink-api keeps (`*.Report`,
   `*.Alert`, `*.StatusChange`, `*.getState`, `*.setState`, `*.DevEvent`,
-  `THSensor.DataRecord`).
+  `THSensor.DataRecord`). YoLink's MQTT has no TLS: the access token travels in
+  clear, so the `live_events` option (on by default, pending a decision) turns
+  it off, leaving the HTTPS reads only. Refused credentials while reconnecting
+  stop everything, like a refused refresh.
 - **Devices**: `ext:<selector>:yolink:<deviceId>`; the garage controller takes
-  its state from the door sensor paired with it (`parentDeviceId`).
+  its state from the door sensor paired with it (`parentDeviceId`). YS6801
+  channel 0 is the USB ports.
 - **Commands**: `<type>.setState` (plugs, switches, sockets with `chs`, valves,
-  locks, sirens) and `<type>.toggle` (garage doors), behind the three safety
-  options.
+  locks, sirens) and `<type>.toggle` (garage doors), behind the safety options
+  (`allow_unlock`, `allow_garage_open`, `allow_valve_open`, `allow_valve_close`,
+  `allow_siren_stop`). A garage toggle reads the sensor again first (refused
+  when offline or unknown), and a second toggle within 60 s is ignored unless
+  the sensor reported a change.
 
 ## Development
 

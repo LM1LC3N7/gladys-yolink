@@ -7,17 +7,28 @@ import { REFRESH_INTERVAL } from './constants.js';
 /** Defaults, mirrored by the manifest (checked by test/manifest.test.js). */
 export const DEFAULTS = {
   refresh_interval: REFRESH_INTERVAL.default,
+  // Live events over YoLink's MQTT (unencrypted): on by default, pending Louis's decision.
+  live_events: true,
   // The risky commands are off until the user turns them on.
   allow_unlock: false,
   allow_garage_open: false,
   allow_valve_open: false,
+  // Closing a valve is off too, pending Louis's decision.
+  allow_valve_close: false,
+  // Stopping a siren stays possible by default, pending Louis's decision.
+  allow_siren_stop: true,
   language: 'fr',
 };
 
 export const LANGUAGES = ['fr', 'en'];
 
-/** A checkbox may arrive as a boolean or as a string from a form. */
-const yes = (value) => value === true || value === 'true' || value === 1 || value === '1';
+/** A checkbox may arrive as a boolean or as a string from a form; absent = its default. */
+const flag = (value, fallback) => {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+  return value === true || value === 'true' || value === 1 || value === '1';
+};
 
 export function normalizeConfig(raw = {}) {
   const given = raw?.refresh_interval;
@@ -31,9 +42,12 @@ export function normalizeConfig(raw = {}) {
     refreshInterval: Number.isFinite(interval)
       ? Math.round(Math.max(REFRESH_INTERVAL.min, Math.min(REFRESH_INTERVAL.max, interval)))
       : DEFAULTS.refresh_interval,
-    allowUnlock: yes(raw?.allow_unlock),
-    allowGarageOpen: yes(raw?.allow_garage_open),
-    allowValveOpen: yes(raw?.allow_valve_open),
+    liveEvents: flag(raw?.live_events, DEFAULTS.live_events),
+    allowUnlock: flag(raw?.allow_unlock, DEFAULTS.allow_unlock),
+    allowGarageOpen: flag(raw?.allow_garage_open, DEFAULTS.allow_garage_open),
+    allowValveOpen: flag(raw?.allow_valve_open, DEFAULTS.allow_valve_open),
+    allowValveClose: flag(raw?.allow_valve_close, DEFAULTS.allow_valve_close),
+    allowSirenStop: flag(raw?.allow_siren_stop, DEFAULTS.allow_siren_stop),
     language: LANGUAGES.includes(language) ? language : DEFAULTS.language,
   };
 }

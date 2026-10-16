@@ -34,6 +34,7 @@ export const FEATURE_NAMES = {
   battery: { en: 'Battery', fr: 'Batterie' },
   switch: { en: 'Power', fr: 'Alimentation' },
   socket: { en: 'Socket', fr: 'Prise' },
+  usb: { en: 'USB ports', fr: 'Ports USB' },
   power: { en: 'Power draw', fr: 'Puissance' },
   valve: { en: 'Valve open', fr: 'Vanne ouverte' },
   lock: { en: 'Locked', fr: 'Verrouillée' },
@@ -60,10 +61,25 @@ export const T = {
     en: 'Connecting to YoLink…',
     fr: 'Connexion à YoLink…',
   },
-  connected: (devices, live) => ({
-    en: `Connected to YoLink: ${plural(devices, 'device', 'devices')}. ${live ? 'Live events on.' : 'Live events connecting…'} Open Discovery to add them.`,
-    fr: `Connecté à YoLink : ${plural(devices, 'appareil', 'appareils')}. ${live ? 'Événements en direct actifs.' : 'Événements en direct en cours de connexion…'} Ouvrez Découverte pour les ajouter.`,
-  }),
+  /** `live`: true, false (connecting) or 'off' (turned off in the configuration). */
+  connected: (devices, live) => {
+    const en =
+      live === 'off'
+        ? 'Live events off: values are read every refresh interval.'
+        : live
+          ? 'Live events on.'
+          : 'Live events connecting…';
+    const fr =
+      live === 'off'
+        ? 'Événements en direct désactivés : les valeurs sont lues à chaque rafraîchissement.'
+        : live
+          ? 'Événements en direct actifs.'
+          : 'Événements en direct en cours de connexion…';
+    return {
+      en: `Connected to YoLink: ${plural(devices, 'device', 'devices')}. ${en} Open Discovery to add them.`,
+      fr: `Connecté à YoLink : ${plural(devices, 'appareil', 'appareils')}. ${fr} Ouvrez Découverte pour les ajouter.`,
+    };
+  },
   refused: {
     en: 'YoLink refused the UAID or the secret key: check them in the configuration (the integration waits for a change).',
     fr: "YoLink a refusé l'UAID ou la clé secrète : vérifiez-les dans la configuration (l'intégration attend une modification).",
@@ -94,13 +110,29 @@ export const T = {
       fr: "L'ouverture de la porte de garage depuis Gladys est désactivée : autorisez-la dans la configuration de l'intégration YoLink.",
     },
     garageUnknown: {
-      en: 'The garage door state is unknown (no door sensor paired): closing could open it, so it needs the opening allowed in the configuration.',
-      fr: "L'état de la porte de garage est inconnu (aucun capteur associé) : fermer pourrait l'ouvrir, il faut donc autoriser l'ouverture dans la configuration.",
+      en: 'The garage door state is unknown (no door sensor paired, or it is offline or did not answer): a toggle could do the opposite, so the command is refused.',
+      fr: "L'état de la porte de garage est inconnu (aucun capteur associé, ou il est hors ligne ou n'a pas répondu) : basculer pourrait faire l'inverse, la commande est donc refusée.",
+    },
+    garageMoving: {
+      en: 'The garage door was just toggled and its sensor has not reported a change yet: command ignored (try again in a minute).',
+      fr: "La porte de garage vient d'être basculée et son capteur n'a pas encore signalé de changement : commande ignorée (réessayez dans une minute).",
     },
     valve: {
       en: 'Opening water valves from Gladys is turned off: allow it in the configuration of the YoLink integration.',
       fr: "L'ouverture des vannes d'eau depuis Gladys est désactivée : autorisez-la dans la configuration de l'intégration YoLink.",
     },
+    valveClose: {
+      en: 'Closing water valves from Gladys is turned off: allow it in the configuration of the YoLink integration.',
+      fr: "La fermeture des vannes d'eau depuis Gladys est désactivée : autorisez-la dans la configuration de l'intégration YoLink.",
+    },
+    sirenStop: {
+      en: 'Stopping sirens from Gladys is turned off: allow it in the configuration of the YoLink integration.',
+      fr: "L'arrêt des sirènes depuis Gladys est désactivé : autorisez-le dans la configuration de l'intégration YoLink.",
+    },
+  },
+  leakStopAsleep: {
+    en: 'The LeakStop did not answer. In its power-saving (class A) mode it only listens from time to time: try again in a few minutes, or change its mode in the YoLink app.',
+    fr: "Le LeakStop n'a pas répondu. En mode économie d'énergie (classe A), il n'écoute que de temps en temps : réessayez dans quelques minutes, ou changez son mode dans l'application YoLink.",
   },
   test: {
     cooldown: {
@@ -108,8 +140,8 @@ export const T = {
       fr: 'Déjà lu il y a moins de 30 secondes.',
     },
     summary: (devices, skipped, live) => ({
-      en: `${plural(devices, 'supported device', 'supported devices')}${skipped ? `, ${plural(skipped, 'other device', 'other devices')} not supported yet` : ''}. Live events: ${live ? 'on' : 'connecting'}.`,
-      fr: `${plural(devices, 'appareil pris en charge', 'appareils pris en charge')}${skipped ? `, ${plural(skipped, 'autre appareil', 'autres appareils')} pas encore pris en charge` : ''}. Événements en direct : ${live ? 'actifs' : 'en cours de connexion'}.`,
+      en: `${plural(devices, 'supported device', 'supported devices')}${skipped ? `, ${plural(skipped, 'other device', 'other devices')} not supported yet` : ''}. Live events: ${live === 'off' ? 'off' : live ? 'on' : 'connecting'}.`,
+      fr: `${plural(devices, 'appareil pris en charge', 'appareils pris en charge')}${skipped ? `, ${plural(skipped, 'autre appareil', 'autres appareils')} pas encore pris en charge` : ''}. Événements en direct : ${live === 'off' ? 'désactivés' : live ? 'actifs' : 'en cours de connexion'}.`,
     }),
   },
 };

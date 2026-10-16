@@ -139,16 +139,37 @@ export function httpError(status, { token = false } = {}) {
   return new YoLinkError('http', 'request failed', { status });
 }
 
+/** BUDP codes of a token answer that mean the credentials themselves are refused. */
+const TOKEN_REFUSED = ['000106', '010101', '010102', '010103'];
+
+/**
+ * A token answer without an access token. With a BUDP `code`: refused for the
+ * credential codes only, the error of the code otherwise (a 010000 outage is
+ * not a wrong secret). With an OAuth `error` (invalid_client…): refused.
+ */
+export function tokenError(json) {
+  const code = json && typeof json === 'object' ? json.code : undefined;
+  if (code !== undefined && code !== null && code !== '') {
+    const error = codeError(String(code), json.desc);
+    return TOKEN_REFUSED.includes(error.code)
+      ? new YoLinkError('refused', 'UAID or secret key refused', { code: error.code })
+      : error;
+  }
+  if (typeof json?.error === 'string' && json.error !== '') {
+    return new YoLinkError('refused', 'UAID or secret key refused');
+  }
+  return new YoLinkError('bad_response', 'YoLink sent no access token');
+}
+
 /**
  * The token answer: `{ access_token, refresh_token, expires_in }` (seconds).
- * A refusal may come as a 200 with an error body: anything without an access
- * token is a refusal.
+ * Throws tokenError() for an answer without an access token.
  */
 export function parseToken(body, now) {
   const json = parseJson(body);
   const accessToken = json?.access_token;
   if (typeof accessToken !== 'string' || accessToken === '') {
-    return null;
+    throw tokenError(json);
   }
   const seconds = Number(json.expires_in);
   const lifetime = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : TIMINGS.tokenLifetime;

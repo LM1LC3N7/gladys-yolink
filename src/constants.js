@@ -74,6 +74,15 @@ export const KINDS = {
 /** Temperature-only THSensor models (no humidity probe). */
 export const TEMPERATURE_ONLY_MODELS = ['YS8004', 'YS8014', 'YS8017'];
 
+/** Water meter models without a valve (FlowSmart Meter): no valve feature. */
+export const VALVELESS_MODELS = ['YS5007'];
+
+/**
+ * LeakStop controllers (yolink-api `DEVICE_LEAK_STOP_MODELS`): they can run in
+ * a power-saving class A mode where they only listen from time to time.
+ */
+export const LEAK_STOP_MODELS = ['YS5009', 'YS5029'];
+
 /** Outlet models that measure their power (the others always report 0). */
 export const POWER_MODELS = ['YS6602', 'YS6803'];
 
@@ -148,6 +157,12 @@ export const TIMINGS = {
   mqttBackoff: [30_000, 60_000, 2 * 60_000, 5 * 60_000],
   mqttKeepalive: 60,
   mqttConnectTimeout: 30_000,
+  /**
+   * After a garage door toggle, a new toggle of the same door is ignored this
+   * long, or until its sensor reports a change: a second "close" sent while
+   * the door moves would open it again.
+   */
+  garageGuard: 60_000,
   /** The "Test the connection" button and the Discovery scan read YoLink at most this often. */
   testCooldown: 30_000,
 };

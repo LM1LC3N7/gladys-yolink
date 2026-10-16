@@ -172,7 +172,8 @@ export function fakeYoLink({ lifetime = 7200 } = {}) {
     }
     if (action === 'toggle') {
       const sensor = server.us.find((d) => d.parentDeviceId === device.deviceId);
-      if (sensor) {
+      // `doorMoves: false`: the door takes its time, its sensor has not changed yet.
+      if (sensor && server.doorMoves !== false) {
         const s = server.states[sensor.deviceId];
         s.state = s.state === 'open' ? 'closed' : 'open';
       }
@@ -200,13 +201,13 @@ export function fakeMqtt(server, { autoConnect = true } = {}) {
       client.end = () => {
         client.ended = true;
       };
-      mqtt.connections.push({ endpoint: endpoint.name, options, client });
+      mqtt.connections.push({ endpoint: endpoint.name, options, client, at: Date.now() });
       if (autoConnect) {
         setImmediate(() => {
           if (client.ended) {
             return;
           }
-          if (server.validToken(options.username)) {
+          if (server.validToken(options.username) && !mqtt.refuseAll) {
             client.emit('connect', { returnCode: 0 });
           } else {
             const err = new Error('Connection refused: Not authorized');

@@ -7,11 +7,21 @@ test('defaults: no credentials, every risky command off', () => {
     uaid: '',
     secretKey: '',
     refreshInterval: DEFAULTS.refresh_interval,
+    liveEvents: true,
     allowUnlock: false,
     allowGarageOpen: false,
     allowValveOpen: false,
+    allowValveClose: false,
+    allowSirenStop: true,
     language: 'fr',
   });
+});
+
+test('an unchecked box is false, an absent one is its default', () => {
+  const config = normalizeConfig({ live_events: false, allow_siren_stop: 'false' });
+  assert.equal(config.liveEvents, false);
+  assert.equal(config.allowSirenStop, false);
+  assert.equal(normalizeConfig({ allow_valve_close: true }).allowValveClose, true);
 });
 
 test('values are trimmed, bounded and typed', () => {
