@@ -85,8 +85,8 @@
         "fr": "Autoriser l'ouverture des portes de garage depuis Gladys"
       },
       "description": {
-        "en": "Off by default: Gladys can close a garage door whose sensor says it is open, never open one.",
-        "fr": "Désactivé par défaut : Gladys peut fermer une porte de garage que son capteur dit ouverte, jamais en ouvrir une."
+        "en": "Off by default: Gladys never sends an opening; it can close a door its sensor reports open. The controller can only toggle: if the sensor is wrong, or if the door is already closing by other means, a \"close\" can stop it or open it again (see the guide).",
+        "fr": "Désactivé par défaut : Gladys n'envoie jamais d'ouverture ; il peut fermer une porte que son capteur dit ouverte. Le contrôleur ne sait que basculer : si le capteur se trompe, ou si la porte se ferme déjà par un autre moyen, un « fermer » peut l'arrêter ou la rouvrir (voir le guide)."
       },
       "required": false,
       "default": false

@@ -76,7 +76,12 @@ or off never reaches it. The YoLink controller itself only knows "toggle":
   door moves would open it again;
 - **limit**: a door already moving by other means (remote, wall button, the
   YoLink app) may be reversed by a "close" from Gladys, because the YoLink API
-  cannot tell that it moves: the sensor only says "open" or "closed".
+  cannot tell that it moves: the sensor only says "open" or "closed";
+- **limit**: a sensor that is wrong (badly placed, magnet out of line, state
+  stuck) makes the toggle do the opposite of the command, a "close" that
+  **opens** the door included, even with opening turned off. This cannot be
+  detected: the cloud only returns the last state the sensor reported. Check
+  that the sensor follows the door before automating.
 
 ## How the values arrive
 
@@ -162,6 +167,12 @@ refused on both).
   - **every event of your devices**: doors opening and closing, motions,
     leaks, temperatures and humidity, lock, valve, siren and plug states,
     batteries, the answers to commands. They tell when someone is at home.
+- **Forged events**: without TLS, someone on that path can also inject fake
+  events (a door opening, a leak, a motion) that Gladys takes as real, and so
+  trigger your scenes.
+- **No encrypted alternative**: YoSmart offers no TLS port (only 8003 TCP and
+  8004 WebSocket, both in clear); turning the option off is the only way to
+  avoid it.
 - **What never goes there**: the UAID and the secret key, and the commands
   (always sent over HTTPS).
 - **To turn it off**: in Gladys, **Integrations** > **YoLink** >

@@ -7,15 +7,15 @@ import { REFRESH_INTERVAL } from './constants.js';
 /** Defaults, mirrored by the manifest (checked by test/manifest.test.js). */
 export const DEFAULTS = {
   refresh_interval: REFRESH_INTERVAL.default,
-  // Live events over YoLink's MQTT (unencrypted): on by default, pending Louis's decision.
+  // Live events over YoLink's MQTT (unencrypted): on by default, Louis's decision, 2026-10-17.
   live_events: true,
   // The risky commands are off until the user turns them on.
   allow_unlock: false,
   allow_garage_open: false,
   allow_valve_open: false,
-  // Closing a valve is off too, pending Louis's decision.
+  // Closing a valve is off too: Louis's decision, 2026-10-17.
   allow_valve_close: false,
-  // Stopping a siren stays possible by default, pending Louis's decision.
+  // Stopping a siren stays possible by default: Louis's decision, 2026-10-17.
   allow_siren_stop: true,
   language: 'fr',
 };

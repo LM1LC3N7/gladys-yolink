@@ -83,7 +83,12 @@ qu'une commande « basculer » :
 - **limite** : une porte déjà en mouvement par un autre moyen (télécommande,
   bouton mural, application YoLink) peut être inversée par un « fermer » de
   Gladys, car l'API YoLink ne permet pas de savoir qu'elle bouge : le capteur
-  ne dit qu'« ouverte » ou « fermée ».
+  ne dit qu'« ouverte » ou « fermée » ;
+- **limite** : un capteur qui se trompe (mal placé, aimant décalé, état figé)
+  fait faire à la bascule l'inverse de la commande, y compris un « fermer »
+  qui **ouvre** la porte, même avec l'ouverture désactivée. C'est
+  indétectable : le cloud ne renvoie que le dernier état signalé par le
+  capteur. Vérifiez que le capteur suit bien la porte avant d'automatiser.
 
 ## Comment les valeurs arrivent
 
@@ -177,6 +182,12 @@ aussi sans TLS ; une connexion TLS est refusée sur les deux).
     ferment, mouvements, fuites, températures et humidité, états des serrures,
     vannes, sirènes et prises, batteries, réponses aux commandes. Ils disent
     quand quelqu'un est à la maison.
+- **Événements falsifiés** : sans TLS, quelqu'un sur ce chemin peut aussi
+  injecter de faux événements (porte qui s'ouvre, fuite, mouvement) que
+  Gladys prend pour vrais, et donc déclencher vos scènes.
+- **Aucune variante chiffrée** : YoSmart n'offre aucun port TLS (seulement
+  8003 en TCP et 8004 en WebSocket, tous deux en clair) ; désactiver l'option
+  est le seul moyen de l'éviter.
 - **Ce qui n'y passe jamais** : l'UAID et la clé secrète, et les commandes
   (toujours envoyées en HTTPS).
 - **Pour le désactiver** : dans Gladys, **Intégrations** > **YoLink** >

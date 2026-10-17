@@ -109,6 +109,20 @@ test('the configuration matches the code', () => {
     assert.equal(fields[key].type, 'boolean');
     assert.equal(fields[key].default, true, `${key} is on by default (Louis, 2026-10-17)`);
   }
+  // Garage: no promise the door never opens (a toggle on a wrong sensor can).
+  const garage = fields.allow_garage_open.description;
+  assert.match(garage.en, /never sends an opening/);
+  assert.match(garage.fr, /n'envoie jamais d'ouverture/);
+  assert.match(garage.en, /stop it or open it again/);
+  assert.match(garage.fr, /l'arrêter ou la rouvrir/);
+  for (const lang of ['en', 'fr']) {
+    assert.doesNotMatch(garage[lang], /never open one|jamais en ouvrir une/);
+  }
+  assert.match(read('docs/en.md'), /a "close" that\s+\*\*opens\*\* the door/);
+  assert.match(read('docs/fr.md'), /un « fermer »\s+qui \*\*ouvre\*\* la porte/);
+  assert.doesNotMatch(read('src/config.js'), /pending Louis/);
+  assert.match(read('docs/en.md'), /Forged events[\s\S]*YoSmart offers no TLS port/);
+  assert.match(read('docs/fr.md'), /Événements falsifiés[\s\S]*YoSmart n'offre aucun port TLS/);
   // Live events stay on, but the option says what travels in clear, between
   // what and what, and how to turn it off.
   const live = fields.live_events.description;

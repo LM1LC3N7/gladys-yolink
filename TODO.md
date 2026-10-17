@@ -133,6 +133,13 @@ up to date at the end of every milestone.
   until the sensor reports a known state other than that one (an unknown or
   offline sensor never lifts it). Limit: a door moving by other means can be
   reversed, the API cannot tell it moves.
+- **Garage deadline everywhere** (approval round 1, 2026-10-17): the 3.5 s
+  deadline is checked before the sensor read, after it, and by the client
+  before sending and before resending after a token renewal (`late`). A
+  `late` failure still sets the 60 s guard (prudent: it cannot tell whether a
+  first send reached the door). The `allow_garage_open` text no longer
+  promises the door never opens: a wrong sensor (misplaced, magnet off,
+  stuck state) makes the toggle do the opposite, undetectable from the cloud.
 - **LICENSE and THIRD_PARTY_NOTICES.md** (2026-10-17): the Apache-2.0 text
   (standard appendix line, no personal name) and the MIT notice of
   yolink-api (its file reads "The Python Packaging Authority", the template

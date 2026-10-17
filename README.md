@@ -50,7 +50,8 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (YoLinkApp) ⇄ src/client.js 
   device of the account), the home id, the device ids and every device event
   (doors, motions, leaks, temperatures, lock/valve/siren/plug states,
   batteries, command answers) travel in clear. The secret key, the UAID and
-  the commands never use MQTT (HTTPS only). To turn it off: untick the
+  the commands never use MQTT (HTTPS only). Without TLS, someone on the path
+  can also forge events (and trigger scenes); YoSmart offers no TLS port. To turn it off: untick the
   `live_events` option ("Live events (unencrypted MQTT)") in the
   configuration and save; the connections close at once and only the HTTPS
   full refresh remains. See "Privacy" in [docs/en.md](docs/en.md).

@@ -3,9 +3,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { YoLinkClient } from '../src/client.js';
-import { ENDPOINTS } from '../src/constants.js';
+import { ENDPOINTS, TOKEN_URL } from '../src/constants.js';
 import { StatePublisher } from '../src/publisher.js';
-import { NOW, SECRET, UAID } from './fixtures/yolink.js';
+import { IDS, NOW, SECRET, UAID } from './fixtures/yolink.js';
 import { fakeYoLink } from './helpers/fakeYoLink.js';
 
 function client(server, clock) {
@@ -60,6 +60,42 @@ for (const code of ['010104', '000103']) {
     assert.equal(c.session.accessToken, 'at-2');
   });
 }
+
+test('a command past its deadline is not sent again after a token renewal', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+  const server = fakeYoLink();
+  const clock = { now: NOW };
+  const c = client(server, clock);
+  await c.homeId();
+  const garage = {
+    id: IDS.garage,
+    type: 'GarageDoor',
+    endpoint: ENDPOINTS.US,
+    token: server.tokenOf('US', IDS.garage),
+  };
+  server.queue.push({
+    match: (r) => r.body?.method === 'GarageDoor.toggle',
+    body: { code: '000103', desc: 'Token is invalid' },
+  });
+  // The renewal takes 5 s: past the 3.5 s deadline of the command.
+  server.queue.push({
+    match: (r) => {
+      if (r.url === TOKEN_URL) {
+        clock.now += 5000;
+      }
+      return false;
+    },
+  });
+  await assert.rejects(c.invoke(garage, 'toggle', undefined, NOW + 3500), { kind: 'late' });
+  assert.equal(server.calls('GarageDoor.toggle').length, 1, 'never resent');
+  // Without a deadline, the same refusal is retried once with the new token.
+  server.queue.push({
+    match: (r) => r.body?.method === 'GarageDoor.toggle',
+    body: { code: '000103', desc: 'Token is invalid' },
+  });
+  await c.invoke(garage, 'toggle');
+  assert.equal(server.calls('GarageDoor.toggle').length, 3);
+});
 
 test('a refresh token failing for a passing reason is kept', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: NOW });

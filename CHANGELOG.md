@@ -34,7 +34,10 @@ the notes of the version's GitHub Release.
   without a state), refused before sending when not ready 3.5 s after it
   arrived (Gladys waits 5 s for the answer), and any new command within a
   minute of a toggle refused ("command ignored") until the sensor reports a
-  state other than the one of departure (an unknown state never ends it).
+  state other than the one of departure (an unknown state never ends it). The
+  deadline is checked again before the read and before any send or resend
+  after a token renewal. The option and the docs say that a wrong sensor
+  makes a "close" open the door, even with opening off.
 - Live events over MQTT on the US and EU clouds, on by default, with an option
   to turn them off. YoLink's MQTT is not encrypted: the access token, the
   device ids and every device event travel in clear between Gladys and

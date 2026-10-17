@@ -598,13 +598,18 @@ export class YoLinkApp {
       // One garage command at a time: two "close" received together must not
       // both see the door open and send two toggles.
       return this.serialized(device.id, async () => {
+        // Queued behind another command past the deadline: not even a read.
+        if (this.now() >= deadline) {
+          throw this.denied('garageSlow');
+        }
         const door = await this.refreshGarageDoor(device, deadline);
         if (this.now() >= deadline) {
           throw this.denied('garageSlow');
         }
-        // commandOf() is synchronous: the toggle leaves right after this check.
+        // commandOf() is synchronous; the client checks the deadline again
+        // before sending (and before resending after a token renewal).
         const command = this.commandOf(device, role, v === GLADYS.COVER_OPEN, undefined, door);
-        return this.execute(device, role, command, door);
+        return this.execute(device, role, command, door, deadline);
       });
     }
     return this.execute(device, role, this.commandOf(device, role, v === 1, target.index));
@@ -629,7 +634,7 @@ export class YoLinkApp {
    * the sensor state read just before the toggle (the state of departure the
    * guard keeps).
    */
-  async execute(device, role, command, door) {
+  async execute(device, role, command, door, deadline) {
     if (!command) {
       return;
     }
@@ -644,10 +649,14 @@ export class YoLinkApp {
       }
     };
     try {
-      answer = await this.client.invoke(device, command.method, command.params);
+      answer = await this.client.invoke(device, command.method, command.params, deadline);
     } catch (err) {
       // A toggle that timed out may still have reached the door: guarded too.
       guard();
+      if (err.kind === 'late') {
+        // Not sent (or not sent again after a token renewal): past the 5 s ack.
+        throw this.denied('garageSlow');
+      }
       if (
         err.kind === 'device' &&
         device.kind === 'valve' &&

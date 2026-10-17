@@ -138,9 +138,19 @@ export class YoLinkClient {
     return parseBudp(answer.body);
   }
 
-  /** One BDDP; a refused token is renewed once and the call retried. */
-  async call(endpoint, bddp) {
+  /**
+   * One BDDP; a refused token is renewed once and the call retried.
+   * `deadline` (ms, optional): past it, nothing is sent (a command whose
+   * answer Gladys no longer waits for is never sent, nor sent again).
+   */
+  async call(endpoint, bddp, deadline = Infinity) {
+    const late = () => {
+      if (this.now() >= deadline) {
+        throw new YoLinkError('late', 'not sent: past the deadline of the command');
+      }
+    };
     const token = await this.token();
+    late();
     try {
       return await this.send(endpoint, bddp, token);
     } catch (err) {
@@ -150,7 +160,9 @@ export class YoLinkClient {
       if (this.session?.accessToken === token) {
         this.session = null;
       }
-      return this.send(endpoint, bddp, await this.token());
+      const renewed = await this.token();
+      late();
+      return this.send(endpoint, bddp, renewed);
     }
   }
 
@@ -173,13 +185,17 @@ export class YoLinkClient {
   }
 
   /** `<type>.<method>` on one device (`{ id, token, type, endpoint }` of src/inventory.js). */
-  invoke(device, method, params) {
-    return this.call(device.endpoint, {
-      method: `${device.type}.${method}`,
-      targetDevice: device.id,
-      token: device.token,
-      ...(params === undefined ? {} : { params }),
-    });
+  invoke(device, method, params, deadline) {
+    return this.call(
+      device.endpoint,
+      {
+        method: `${device.type}.${method}`,
+        targetDevice: device.id,
+        token: device.token,
+        ...(params === undefined ? {} : { params }),
+      },
+      deadline,
+    );
   }
 
   /**
