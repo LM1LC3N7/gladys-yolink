@@ -25,7 +25,7 @@ Un appareil Gladys par appareil YoLink pris en charge :
 | Vanne d'eau (Manipulator, LeakStop, FlowSmart Control) | vanne ouverte/fermée (commandable), batterie %                   |
 | Serrure (Lock M1, Lock M2)                             | verrouillée (commandable), batterie %                            |
 | Sirène (Siren)                                         | sirène en marche/arrêt (commandable), batterie %                 |
-| Porte de garage (GarageDoor, Finger)                   | porte ouverte/fermée d'après son capteur (commandable)           |
+| Porte de garage (GarageDoor, Finger)                   | commande de volet ouvrir/fermer, état d'après son capteur        |
 
 Les hubs, télécommandes, thermostats, arrosages et autres types ne sont pas
 encore pris en charge : le bouton **Tester la connexion** indique combien
@@ -61,15 +61,24 @@ l'eau depuis une scène en cas de fuite, activez « Autoriser la fermeture des
 vannes d'eau ». Sirène dont l'arrêt est désactivé : elle s'arrête d'elle-même
 au bout de sa durée d'alarme réglée dans l'application YoLink.
 
-La porte de garage YoLink ne connaît qu'une commande « basculer » :
+La porte de garage YoLink apparaît dans Gladys comme une **commande de volet**
+(ouvrir, fermer), jamais comme un interrupteur : une scène qui allume ou
+éteint tout ne l'atteint donc jamais. Le contrôleur YoLink, lui, ne connaît
+qu'une commande « basculer » :
 
+- **arrêter** est refusé : le contrôleur ne sait pas arrêter la porte, et un
+  basculement envoyé à la place pourrait l'inverser ;
 - juste avant de basculer, l'intégration relit le capteur de porte associé ;
   s'il n'existe pas, est hors ligne ou ne donne pas d'état, la commande est
   refusée (basculer pourrait faire l'inverse) ;
+- Gladys attend 5 secondes la réponse d'une commande : une commande de garage
+  qui n'est pas prête à partir 3,5 secondes après son arrivée (capteur lent,
+  autre commande du même garage en cours) est refusée et rien n'est envoyé ;
 - les commandes d'un même garage passent une par une ; après un basculement,
   toute nouvelle commande de ce garage est refusée avec le message « commande
-  ignorée » pendant 60 secondes ou jusqu'à ce que le capteur signale un
-  changement : un deuxième « fermer » envoyé pendant que la porte bouge la
+  ignorée » pendant 60 secondes ou jusqu'à ce que le capteur signale un état
+  différent de celui d'avant le basculement (un capteur hors ligne ne lève pas
+  ce blocage) : un deuxième « fermer » envoyé pendant que la porte bouge la
   rouvrirait ;
 - **limite** : une porte déjà en mouvement par un autre moyen (télécommande,
   bouton mural, application YoLink) peut être inversée par un « fermer » de
@@ -138,21 +147,45 @@ La porte de garage YoLink ne connaît qu'une commande « basculer » :
 
 ## Confidentialité
 
-L'UAID et la clé secrète sont stockés par Gladys comme secrets (la clé n'est
-jamais renvoyée au navigateur). La clé n'est envoyée qu'à
+L'UAID et la clé secrète sont gardés par Gladys dans sa base (la clé est
+masquée dans l'interface, jamais réaffichée ; Gladys ne la chiffre pas, elle
+figure donc aussi dans ses sauvegardes). La clé n'est envoyée qu'à
 `api.yosmart.com/open/yolink/token` (HTTPS) pour obtenir un jeton d'accès, qui
-reste en mémoire (rien n'est écrit dans `/data`).
+reste en mémoire (rien n'est écrit dans `/data`). Toutes les autres requêtes
+HTTP (liste des appareils, états, commandes) partent vers YoLink en HTTPS.
 
-**Les événements en direct ne sont pas chiffrés.** Ils passent par le broker
-MQTT de YoLink sur le port 8003, sans TLS : c'est le seul mode documenté par
-YoLink (le port 8004 est du WebSocket, lui aussi sans TLS). Le jeton d'accès y
-circule **en clair** comme nom d'utilisateur. Quiconque observe votre réseau
-(ou le chemin jusqu'à YoLink) peut le lire et, pendant environ 2 heures (sa
-durée de validité), **commander tous vos appareils YoLink, y compris
-déverrouiller les serrures et ouvrir le garage**, quelles que soient les
-options de Gladys. La clé secrète, elle, n'y passe jamais. Si ce risque n'est
-pas acceptable, désactivez l'option « Événements en direct » : il ne reste
-alors que les lectures HTTPS, à chaque rafraîchissement complet.
+### Événements en direct : ce qui circule en clair
+
+L'option « Événements en direct » est **activée par défaut**. C'est la seule
+partie de l'intégration qui n'est **pas chiffrée** : le broker MQTT de YoLink
+n'offre que du TCP simple sur le port 8003 (le port 8004 est du WebSocket, lui
+aussi sans TLS ; une connexion TLS est refusée sur les deux).
+
+- **Entre quoi et quoi** : la machine qui fait tourner Gladys (le conteneur de
+  l'intégration) et le broker MQTT de YoLink, `mqtt.api.yosmart.com:8003`
+  (cloud américain) et, si vous avez des appareils européens,
+  `api-eu.yosmart.com:8003` (cloud européen), en passant par votre réseau
+  local, votre fournisseur d'accès et Internet.
+- **Ce qui circule en clair** :
+  - le **jeton d'accès** (envoyé comme nom d'utilisateur MQTT à chaque
+    connexion). Il est valable environ 2 heures : qui le lit peut, pendant ce
+    temps, **commander tous vos appareils YoLink, y compris déverrouiller les
+    serrures et ouvrir le garage**, quelles que soient les options de Gladys ;
+  - l'**identifiant de votre maison** YoLink (dans le sujet MQTT) et
+    l'**identifiant de chaque appareil** ;
+  - **tous les événements de vos appareils** : portes qui s'ouvrent et se
+    ferment, mouvements, fuites, températures et humidité, états des serrures,
+    vannes, sirènes et prises, batteries, réponses aux commandes. Ils disent
+    quand quelqu'un est à la maison.
+- **Ce qui n'y passe jamais** : l'UAID et la clé secrète, et les commandes
+  (toujours envoyées en HTTPS).
+- **Pour le désactiver** : dans Gladys, **Intégrations** > **YoLink** >
+  **Configuration**, décochez « Événements en direct (MQTT non chiffré) » et
+  enregistrez. Les connexions MQTT se ferment aussitôt et aucune n'est
+  rouverte ; les valeurs n'arrivent plus qu'à chaque rafraîchissement complet,
+  en HTTPS (baissez « Intervalle de rafraîchissement complet » à 10 minutes
+  pour des valeurs plus fraîches). L'état indique alors « Événements en direct
+  désactivés ».
 
 YoLink est une marque de YoSmart ; cette intégration est sans lien avec
 YoSmart.

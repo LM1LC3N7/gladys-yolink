@@ -141,8 +141,8 @@
         "fr": "Événements en direct (MQTT non chiffré)"
       },
       "description": {
-        "en": "On by default. YoLink's MQTT has no encryption: the access token travels in clear and lets anyone watching your network command every YoLink device (unlocking included) for about 2 hours. Off: only the HTTPS reads remain (every refresh interval).",
-        "fr": "Activé par défaut. Le MQTT de YoLink n'est pas chiffré : le jeton d'accès y circule en clair et permet à qui observe votre réseau de commander tous les appareils YoLink (déverrouillage compris) pendant environ 2 heures. Désactivé : seules les lectures HTTPS restent (à chaque rafraîchissement)."
+        "en": "On by default. YoLink's MQTT (port 8003) has no encryption: between this Gladys and YoLink's broker (mqtt.api.yosmart.com, api-eu.yosmart.com for EU devices), the access token and every event of your devices (doors, motions, leaks, temperatures, lock and valve states, batteries) travel in clear over your network and the internet. Whoever reads the token can command every YoLink device (unlocking and the garage included) for about 2 hours. The secret key and the commands always go over HTTPS. Untick and save to turn it off: the values then arrive only at each full refresh, over HTTPS.",
+        "fr": "Activé par défaut. Le MQTT de YoLink (port 8003) n'est pas chiffré : entre ce Gladys et le broker de YoLink (mqtt.api.yosmart.com, api-eu.yosmart.com pour les appareils européens), le jeton d'accès et tous les événements de vos appareils (portes, mouvements, fuites, températures, états des serrures et vannes, batteries) circulent en clair sur votre réseau et sur Internet. Qui lit le jeton peut commander tous les appareils YoLink (déverrouillage et garage compris) pendant environ 2 heures. La clé secrète et les commandes passent toujours en HTTPS. Décochez et enregistrez pour le désactiver : les valeurs n'arrivent alors qu'à chaque rafraîchissement complet, en HTTPS."
       },
       "required": false,
       "default": true

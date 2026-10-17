@@ -25,7 +25,7 @@ One Gladys device per supported YoLink device:
 | Water valve (Manipulator, LeakStop, FlowSmart Control) | valve open/closed (settable), battery %                          |
 | Lock (Lock M1, Lock M2)                                | locked (settable), battery %                                     |
 | Siren (Siren)                                          | siren on/off (settable), battery %                               |
-| Garage door (GarageDoor, Finger)                       | open/closed from its door sensor (settable)                      |
+| Garage door (GarageDoor, Finger)                       | cover command open/close, state from its door sensor             |
 
 Hubs, remotes, thermostats, sprinklers and other types are not supported yet:
 the **Test the connection** button tells how many devices are skipped.
@@ -57,15 +57,23 @@ off from a scene on a leak, turn on "Allow closing the water valves". A siren
 whose stopping is off stops by itself after the alarm duration set in the
 YoLink app.
 
-A YoLink garage door only knows a "toggle" command:
+A YoLink garage door appears in Gladys as a **cover command** (like a
+shutter: open, close), never as a switch, so a scene that turns everything on
+or off never reaches it. The YoLink controller itself only knows "toggle":
 
+- **stop** is refused: the controller cannot stop the door, and a toggle sent
+  instead could reverse it;
 - just before toggling, the integration reads the paired door sensor again;
   when there is none, or it is offline or gives no state, the command is
   refused (a toggle could do the opposite);
+- Gladys waits 5 seconds for the answer of a command: a garage command that is
+  not ready to be sent 3.5 seconds after it arrived (slow sensor, another
+  command of that garage in progress) is refused and nothing is sent;
 - the commands of one garage run one at a time; after a toggle, any new
   command of that garage is refused with a "command ignored" message for 60
-  seconds or until the sensor reports a change: a second "close" sent while
-  the door moves would open it again;
+  seconds or until the sensor reports a state other than the one before the
+  toggle (an offline sensor does not end it): a second "close" sent while the
+  door moves would open it again;
 - **limit**: a door already moving by other means (remote, wall button, the
   YoLink app) may be reversed by a "close" from Gladys, because the YoLink API
   cannot tell that it moves: the sensor only says "open" or "closed".
@@ -127,20 +135,40 @@ A YoLink garage door only knows a "toggle" command:
 
 ## Privacy
 
-The UAID and the secret key are stored by Gladys as secrets (the key is never
-sent back to the browser). The key only goes to
+The UAID and the secret key are kept by Gladys in its database (the key is
+masked in the interface, never shown again; Gladys does not encrypt it, so it
+is in its backups too). The key is only sent to
 `api.yosmart.com/open/yolink/token` (HTTPS) to get an access token, which stays
-in memory (nothing is written to `/data`).
+in memory (nothing is written to `/data`). Every other HTTP request (device
+list, states, commands) goes to YoLink over HTTPS.
 
-**The live events are not encrypted.** They go through YoLink's MQTT broker
-on port 8003, without TLS: the only mode YoLink documents (port 8004 is
-WebSocket, without TLS too). The access token travels there **in clear** as
-the user name. Anyone watching your network (or the path to YoLink) can read
-it and, for about 2 hours (its lifetime), **command every YoLink device of
-yours, unlocking the locks and opening the garage included**, whatever the
-Gladys options. The secret key never goes there. If that risk is not
-acceptable, turn the "Live events" option off: only the HTTPS reads remain,
-at every full refresh.
+### Live events: what travels in clear
+
+The "Live events" option is **on by default**. It is the only part of the
+integration that is **not encrypted**: YoLink's MQTT broker only offers plain
+TCP on port 8003 (port 8004 is WebSocket, without TLS too; a TLS connection is
+refused on both).
+
+- **Between what and what**: the machine running Gladys (the integration's
+  container) and YoLink's MQTT broker, `mqtt.api.yosmart.com:8003` (US cloud)
+  and, if you have European devices, `api-eu.yosmart.com:8003` (EU cloud),
+  through your local network, your internet provider and the internet.
+- **What travels in clear**:
+  - the **access token** (sent as the MQTT user name at each connection). It
+    is valid about 2 hours: whoever reads it can, during that time, **command
+    every YoLink device of yours, unlocking the locks and opening the garage
+    included**, whatever the Gladys options;
+  - your YoLink **home id** (in the topic) and the **id of each device**;
+  - **every event of your devices**: doors opening and closing, motions,
+    leaks, temperatures and humidity, lock, valve, siren and plug states,
+    batteries, the answers to commands. They tell when someone is at home.
+- **What never goes there**: the UAID and the secret key, and the commands
+  (always sent over HTTPS).
+- **To turn it off**: in Gladys, **Integrations** > **YoLink** >
+  **Configuration**, untick "Live events (unencrypted MQTT)" and save. The
+  MQTT connections close at once and none is opened again; the values then
+  arrive only at each full refresh, over HTTPS (lower "Full refresh interval"
+  to 10 minutes for fresher values). The status then reads "Live events off".
 
 YoLink is a trademark of YoSmart; this integration is not affiliated with
 YoSmart.

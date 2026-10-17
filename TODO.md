@@ -31,6 +31,10 @@ up to date at the end of every milestone.
       `allow_valve_close`, `allow_siren_stop`, `live_events`, refused
       credentials from the MQTT side, YS6801 channel names, token answers,
       scan/test during a rate-limit pause, YS5007, LeakStop message.
+- [x] **Milestone 1 fixes: Louis's decisions** (2026-10-17): garage door as
+      a shutter command (stop refused, 3.5 s deadline, guard on the state of
+      departure), live events kept on and documented, valve close and siren
+      stop defaults confirmed, LICENSE and THIRD_PARTY_NOTICES.md.
 - [ ] **Milestone 2 — real account**: run against a real home and compare
       with the app (see "To check"); turn the answers (anonymized) into
       fixtures.
@@ -83,9 +87,12 @@ up to date at the end of every milestone.
   over it in clear, never the secret key; whoever reads it can command every
   device (unlocking included) for about 2 h: written in the docs (Privacy).
   The HTTP API and the token endpoint are HTTPS.
-- **`live_events` option, on by default — PROVISIONAL, pending Louis's
-  decision** (review 2026-10-16): off, no MQTT at all, HTTPS reads only at
-  each full refresh.
+- **`live_events` option, on by default — Louis's decision, 2026-10-17**:
+  kept on, but said plainly in the docs fr/en, the README and the option's
+  description: what travels in clear (access token, home id, device ids,
+  every device event), between what and what (the Gladys host and
+  `mqtt.api.yosmart.com:8003` / `api-eu.yosmart.com:8003`), and how to turn it
+  off (untick, save: no MQTT at all, HTTPS reads only at each full refresh).
 - **Token in memory only**: a restart asks for a new one (one request), so no
   secret is written to `/data`.
 - **Full refresh every 30 min** (Home Assistant's pace), one `fetchState` per
@@ -93,22 +100,43 @@ up to date at the end of every milestone.
 - **Safety options**: `allow_unlock` off (locking always allowed),
   `allow_garage_open` off (closing a door its sensor reports open is
   allowed), `allow_valve_open` off.
-- **`allow_valve_close`, off by default — PROVISIONAL, pending Louis's
-  decision** (review 2026-10-16): the PIPELINE rule puts valve "coupure"
-  behind an option; the anti-leak scene then needs the user to turn it on.
-- **`allow_siren_stop`, on by default — PROVISIONAL, pending Louis's
-  decision**: a YoLink siren is not an armed alarm system, and stopping one
-  triggered by mistake should stay possible; off, the siren stops after its
-  own alarm duration.
-- **Garage doors** (review B1): the YoLink controller only toggles. Just
-  before a toggle the paired sensor is read again (`fetchState`); no sensor,
-  sensor offline, without a state or any error of that read -> refused,
-  whatever the options (approval R2). The commands of one garage are
-  serialized (a promise chain covering the read, the checks and the toggle,
-  approval R1). After a toggle (or a toggle that failed, which may still have
-  reached the door), the next ones are refused with a "command ignored"
-  message for 60 s or until the sensor reports a change. Limit: a door moving
-  by other means can be reversed, the API cannot tell it moves.
+- **`allow_valve_close`, off by default — Louis's decision, 2026-10-17**:
+  kept off (the PIPELINE rule puts valve "coupure" behind an option); the
+  anti-leak scene needs the user to turn it on.
+- **`allow_siren_stop`, on by default — Louis's decision, 2026-10-17**: kept
+  on; a YoLink siren is not an armed alarm system, and stopping one triggered
+  by mistake should stay possible; off, the siren stops after its own alarm
+  duration.
+- **Garage door as a cover — Louis's decision, 2026-10-17**: the `garage`
+  feature is `shutter`/`state` (SHUTTER_STATE: open 1, close -1, stop 0),
+  like `door_command` of LM1LC3N7/gladys-hubitat, instead of
+  `switch`/`binary`: no switch a "turn everything on" could trigger on a door.
+  External id unchanged (`…:garage`), category and type changed (noted in the
+  CHANGELOG; never released, so no migration). Opening stays behind
+  `allow_garage_open` (off). Its name is now "Garage door" / "Porte de
+  garage" (it was "… open").
+- **Garage stop refused** (prudent choice, 2026-10-17): the YoLink
+  GarageDoor/Finger API only has `toggle`. A toggle while the door moves may
+  stop it on some openers and reverse it on others, and the API cannot tell
+  that the door moves: "stop" (0) is refused with a message. To revisit if a
+  real controller shows a reliable stop.
+- **Garage doors, command guard** (review B1, approvals R1/R2, 2026-10-17):
+  just before a toggle the paired sensor is read again (`fetchState`); no
+  sensor, sensor offline, without a state or any error of that read ->
+  refused, whatever the options. The commands of one garage are serialized (a
+  promise chain covering the read, the checks and the toggle). Deadline: a
+  command not ready to toggle 3.5 s after it arrived (queued, slow read) is
+  refused before acting (Gladys's ack waits 5 s). After a toggle (or a toggle
+  that failed, which may still have reached the door), the guard keeps the
+  state of departure (the one read just before) and every next command,
+  even one "already done", is refused with "command ignored" for 60 s or
+  until the sensor reports a known state other than that one (an unknown or
+  offline sensor never lifts it). Limit: a door moving by other means can be
+  reversed, the API cannot tell it moves.
+- **LICENSE and THIRD_PARTY_NOTICES.md** (2026-10-17): the Apache-2.0 text
+  (standard appendix line, no personal name) and the MIT notice of
+  yolink-api (its file reads "The Python Packaging Authority", the template
+  it came from: kept as is), both copied into the image.
 - **Refresh token** (approval R3): dropped on any failure but network,
   timeout, unavailable and rate_limited (kept for the next try); the
   credentials then give a new token.
@@ -126,10 +154,10 @@ up to date at the end of every milestone.
   for this repository; every later version comes from the Release workflow.
 - **Gladys features**: opening-sensor (OPENING_SENSOR_STATE: 1 closed, 0
   open), motion/leak/vibration binary, temperature °C and humidity % decimal,
-  battery % (level × 25), switch binary for plugs, sockets, valves (1 open)
-  and the garage door (1 open; the core has no garage category and the
-  water-valve category has no binary type), lock binary (LOCK.STATE: 1
-  locked), siren binary. Alerts and door moves from `Alert`/`StatusChange`
+  battery % (level × 25), switch binary for plugs, sockets and valves (1
+  open; the water-valve category has no binary type), lock binary
+  (LOCK.STATE: 1 locked), siren binary, shutter state for the garage door
+  (SHUTTER_STATE: 1 open, -1 closed; the core has no garage category). Alerts and door moves from `Alert`/`StatusChange`
   events are published with `publishStates` (each one counts), the rest with
   `publishChangedStates` and a 30-min heartbeat.
 - **Rate limit**: after 010301 the Discovery scan and the test button wait

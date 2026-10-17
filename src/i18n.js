@@ -39,7 +39,7 @@ export const FEATURE_NAMES = {
   valve: { en: 'Valve open', fr: 'Vanne ouverte' },
   lock: { en: 'Locked', fr: 'Verrouillée' },
   siren: { en: 'Siren', fr: 'Sirène' },
-  garage: { en: 'Garage door open', fr: 'Porte de garage ouverte' },
+  garage: { en: 'Garage door', fr: 'Porte de garage' },
 };
 
 /** "25 min" / "3 h", for the pauses. */
@@ -116,6 +116,14 @@ export const T = {
     garageMoving: {
       en: 'The garage door was just toggled and its sensor has not reported a change yet: command ignored (try again in a minute).',
       fr: "La porte de garage vient d'être basculée et son capteur n'a pas encore signalé de changement : commande ignorée (réessayez dans une minute).",
+    },
+    garageStop: {
+      en: 'The YoLink garage controller can only toggle the door, not stop it: use open or close.',
+      fr: "Le contrôleur de garage YoLink ne sait que basculer la porte, pas l'arrêter : utilisez ouvrir ou fermer.",
+    },
+    garageSlow: {
+      en: 'The garage door could not be checked in time (sensor slow to answer, or another command in progress): command not sent, try again.',
+      fr: "La porte de garage n'a pas pu être vérifiée à temps (capteur lent à répondre, ou autre commande en cours) : commande non envoyée, réessayez.",
     },
     valve: {
       en: 'Opening water valves from Gladys is turned off: allow it in the configuration of the YoLink integration.',

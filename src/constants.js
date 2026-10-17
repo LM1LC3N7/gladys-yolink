@@ -108,6 +108,10 @@ export const GLADYS = {
   /** LOCK.STATE */
   UNLOCKED: 0,
   LOCKED: 1,
+  /** SHUTTER_STATE (the garage door command, as a cover) */
+  COVER_OPEN: 1,
+  COVER_CLOSE: -1,
+  COVER_STOP: 0,
 };
 
 export const ACTIONS = {
@@ -163,6 +167,12 @@ export const TIMINGS = {
    * the door moves would open it again.
    */
   garageGuard: 60_000,
+  /**
+   * Gladys waits 5 s for the answer of a command: a garage command not ready
+   * to toggle this long after it arrived (queued behind another, slow sensor
+   * read) is refused before acting, never sent after Gladys showed a failure.
+   */
+  garageDeadline: 3_500,
   /** The "Test the connection" button and the Discovery scan read YoLink at most this often. */
   testCooldown: 30_000,
 };

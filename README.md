@@ -40,19 +40,33 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (YoLinkApp) ⇄ src/client.js 
   and our own reconnection (30 s up to 5 min, at most 8 new connections per 5
   minutes: YoLink allows 10). The events yolink-api keeps (`*.Report`,
   `*.Alert`, `*.StatusChange`, `*.getState`, `*.setState`, `*.DevEvent`,
-  `THSensor.DataRecord`). YoLink's MQTT has no TLS: the access token travels in
-  clear, so the `live_events` option (on by default, pending a decision) turns
-  it off, leaving the HTTPS reads only. Refused credentials while reconnecting
-  stop everything, like a refused refresh.
+  `THSensor.DataRecord`). Refused credentials while reconnecting stop
+  everything, like a refused refresh.
+- **Live events are unencrypted (on by default, Louis's decision of
+  2026-10-17)**: YoLink's MQTT has no TLS (8003 TCP, 8004 WebSocket; a TLS
+  handshake fails on both). Between the Gladys host and
+  `mqtt.api.yosmart.com:8003` (and `api-eu.yosmart.com:8003` for EU devices),
+  the access token (MQTT user name, valid about 2 h, enough to command every
+  device of the account), the home id, the device ids and every device event
+  (doors, motions, leaks, temperatures, lock/valve/siren/plug states,
+  batteries, command answers) travel in clear. The secret key, the UAID and
+  the commands never use MQTT (HTTPS only). To turn it off: untick the
+  `live_events` option ("Live events (unencrypted MQTT)") in the
+  configuration and save; the connections close at once and only the HTTPS
+  full refresh remains. See "Privacy" in [docs/en.md](docs/en.md).
 - **Devices**: `ext:<selector>:yolink:<deviceId>`; the garage controller takes
   its state from the door sensor paired with it (`parentDeviceId`). YS6801
   channel 0 is the USB ports.
 - **Commands**: `<type>.setState` (plugs, switches, sockets with `chs`, valves,
   locks, sirens) and `<type>.toggle` (garage doors), behind the safety options
   (`allow_unlock`, `allow_garage_open`, `allow_valve_open`, `allow_valve_close`,
-  `allow_siren_stop`). A garage toggle reads the sensor again first (refused
-  when offline or unknown), and a second toggle within 60 s is ignored unless
-  the sensor reported a change.
+  `allow_siren_stop`). The garage door is a `shutter`/`state` feature (open 1,
+  close -1; stop 0 refused, the controller only toggles), never a switch, so
+  a "turn everything on/off" cannot reach it. A garage command reads the
+  sensor again first (refused when offline, unknown or not answered within
+  the 3.5 s deadline kept under Gladys's 5 s ack), runs one at a time, and
+  after a toggle any new command is ignored for 60 s unless the sensor
+  reports a state other than the one of departure.
 
 ## Development
 
@@ -91,5 +105,7 @@ the multi-arch image to GHCR and publishes the GitHub Release. The
 
 ## License
 
-Apache-2.0. YoLink is a trademark of YoSmart; this project is not affiliated
+Apache-2.0 (see [LICENSE](LICENSE)); the logic ported from yolink-api (MIT)
+is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). YoLink is a
+trademark of YoSmart; this project is not affiliated
 with YoSmart.

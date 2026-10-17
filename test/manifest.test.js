@@ -49,12 +49,16 @@ test('the store basics', () => {
 
 test('no mojibake (UTF-8 read as Latin-1) in the manifest and the docs', () => {
   // "Ã©" for "é", "Â " for a no-break space, "â€" for a dash…
-  const mojibake = /[ÂÃ][\u0080-¿€]/;
+  const mojibake = /[ÂÃ][\u0080-¿€]|â€/;
   for (const path of [
     'gladys-assistant-integration.json',
     'docs/en.md',
     'docs/fr.md',
     'README.md',
+    'CHANGELOG.md',
+    'TODO.md',
+    'CLAUDE.md',
+    'THIRD_PARTY_NOTICES.md',
   ]) {
     const text = read(path);
     assert.ok(!text.startsWith('﻿'), `${path} starts with a BOM`);
@@ -103,11 +107,32 @@ test('the configuration matches the code', () => {
   }
   for (const key of ['allow_siren_stop', 'live_events']) {
     assert.equal(fields[key].type, 'boolean');
-    assert.equal(fields[key].default, true, `${key} is on by default (pending Louis)`);
+    assert.equal(fields[key].default, true, `${key} is on by default (Louis, 2026-10-17)`);
   }
+  // Live events stay on, but the option says what travels in clear, between
+  // what and what, and how to turn it off.
+  const live = fields.live_events.description;
+  assert.match(live.en, /in clear/);
+  assert.match(live.fr, /en clair/);
   for (const lang of ['en', 'fr']) {
-    assert.match(fields.live_events.description[lang], /2 h/);
+    assert.match(live[lang], /2 h/);
+    assert.match(live[lang], /mqtt\.api\.yosmart\.com/);
+    assert.match(live[lang], /api-eu\.yosmart\.com/);
+    assert.match(live[lang], /8003/);
   }
+  assert.match(live.en, /access token/);
+  assert.match(live.fr, /jeton d'accès/);
+  assert.match(live.en, /Untick and save/);
+  assert.match(live.fr, /Décochez et enregistrez/);
+  for (const [path, heading] of [
+    ['docs/en.md', /### Live events: what travels in clear/],
+    ['docs/fr.md', /### Événements en direct : ce qui circule en clair/],
+  ]) {
+    const docs = read(path);
+    assert.match(docs, heading, path);
+    assert.match(docs, /mqtt\.api\.yosmart\.com:8003/, path);
+  }
+  assert.match(read('README.md'), /Live events are unencrypted/);
   const intro = fields.intro;
   assert.equal(intro.type, 'section');
   for (const lang of ['en', 'fr']) {
@@ -117,6 +142,17 @@ test('the configuration matches the code', () => {
   assert.ok(intro.links.length <= 5 && intro.links.every((l) => l.url.startsWith('https://')));
   for (const field of manifest.config_schema.filter((f) => f.placeholder !== undefined)) {
     assert.equal(typeof field.placeholder, 'object', field.key);
+  }
+});
+
+test('LICENSE (Apache-2.0, standard appendix) and the notices, in the image', () => {
+  const license = read('LICENSE');
+  assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
+  assert.match(license, /Copyright \[yyyy\] \[name of copyright owner\]/);
+  assert.match(read('THIRD_PARTY_NOTICES.md'), /yolink-api[\s\S]*MIT/);
+  assert.match(read('Dockerfile'), /^COPY LICENSE THIRD_PARTY_NOTICES\.md \.\/$/m);
+  for (const path of ['LICENSE', 'README.md', 'package.json', 'THIRD_PARTY_NOTICES.md']) {
+    assert.doesNotMatch(read(path), /milcent/i, `${path} names a person`);
   }
 });
 

@@ -45,6 +45,8 @@ export function fakeYoLink({ lifetime = 7200 } = {}) {
     down: false,
     /** One-shot answers: { match(request), status, body } */
     queue: [],
+    /** Slow answers: { match(request), ms } (the mocked clock must move) */
+    delays: [],
     tokenRequests() {
       return this.requests.filter((r) => r.url === TOKEN_URL);
     },
@@ -88,6 +90,10 @@ export function fakeYoLink({ lifetime = 7200 } = {}) {
       at: Date.now(),
     };
     server.requests.push(request);
+    const slow = server.delays.find((d) => d.match(request));
+    if (slow) {
+      await new Promise((resolve) => setTimeout(resolve, slow.ms));
+    }
     if (server.down) {
       throw new YoLinkError('network', 'connection refused');
     }

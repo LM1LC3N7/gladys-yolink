@@ -156,7 +156,11 @@ test('states reach Gladys once the devices are created', async (t) => {
   assert.equal(last(gladys, IDS.lock, 'lock'), 1);
   assert.equal(last(gladys, IDS.lockV2, 'lock'), 1);
   assert.equal(last(gladys, IDS.siren, 'siren'), 0);
-  assert.equal(last(gladys, IDS.garage, 'garage'), 0, 'from its paired door sensor');
+  assert.equal(
+    last(gladys, IDS.garage, 'garage'),
+    -1,
+    'closed: SHUTTER_STATE.CLOSE, from its sensor',
+  );
   assert.equal(badgeOf(gladys, IDS.door).transport, DEVICE_TRANSPORTS.CLOUD);
 });
 
@@ -305,7 +309,7 @@ test('garage doors: closing an open door works, opening only when allowed', asyn
   const { gladys, server, advance } = await setup(t);
   await createAll(gladys);
   // Closed already: nothing to do.
-  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', -1), { success: true });
   assert.equal(server.calls('GarageDoor.toggle').length, 0);
   const refused = await set(gladys, IDS.garage, 'garage', 1);
   assert.equal(refused.success, false);
@@ -315,7 +319,7 @@ test('garage doors: closing an open door works, opening only when allowed', asyn
   // The sensor is read again just before the toggle.
   server.states[IDS.garageSensor].state = 'open';
   const reads = server.calls('DoorSensor.fetchState').length;
-  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', -1), { success: true });
   assert.equal(server.calls('DoorSensor.fetchState').length, reads + 1);
   assert.equal(server.calls('GarageDoor.toggle').length, 1);
 
@@ -331,22 +335,22 @@ test('garage doors: a second toggle while the door moves is ignored', async (t) 
   server.states[IDS.garageSensor].state = 'open';
   const { gladys, advance, mqtt } = await setup(t, { server });
   await createAll(gladys);
-  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', -1), { success: true });
   await advance(5000);
-  const ignored = await set(gladys, IDS.garage, 'garage', 0);
+  const ignored = await set(gladys, IDS.garage, 'garage', -1);
   assert.equal(ignored.success, false);
   assert.match(ignored.error, /commande ignorée/);
   assert.equal(server.calls('GarageDoor.toggle').length, 1, 'one toggle for two "close"');
   // 60 s later, the guard is over.
   await advance(56_000);
-  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', -1), { success: true });
   assert.equal(server.calls('GarageDoor.toggle').length, 2);
   // A change reported by the sensor ends the guard at once.
   server.states[IDS.garageSensor].state = 'closed';
   mqtt.publish('US', report(IDS.garageSensor, 'DoorSensor.Alert', { state: 'closed' }));
   await advance(1000);
   server.states[IDS.garageSensor].state = 'open';
-  assert.deepEqual(await set(gladys, IDS.garage, 'garage', 0), { success: true });
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', -1), { success: true });
   assert.equal(server.calls('GarageDoor.toggle').length, 3);
 });
 
@@ -357,8 +361,8 @@ test('garage doors: two "close" at the same time send one toggle', async (t) => 
   const { gladys } = await setup(t, { server });
   await createAll(gladys);
   const acks = await Promise.all([
-    set(gladys, IDS.garage, 'garage', 0),
-    set(gladys, IDS.garage, 'garage', 0),
+    set(gladys, IDS.garage, 'garage', -1),
+    set(gladys, IDS.garage, 'garage', -1),
   ]);
   assert.equal(server.calls('GarageDoor.toggle').length, 1);
   assert.deepEqual(
@@ -378,7 +382,7 @@ for (const code of ['999999', '020101']) {
         r.body?.method === 'DoorSensor.fetchState' && r.body.targetDevice === IDS.garageSensor,
       body: { code, desc: 'failed' },
     });
-    const refused = await set(gladys, IDS.garage, 'garage', 0);
+    const refused = await set(gladys, IDS.garage, 'garage', -1);
     assert.equal(refused.success, false);
     assert.match(refused.error, /inconnu/);
     assert.equal(server.calls('GarageDoor.toggle').length, 0);
@@ -395,7 +399,7 @@ test('garage doors: a sensor fetchState reports offline refuses the command', as
       r.body?.method === 'DoorSensor.fetchState' && r.body.targetDevice === IDS.garageSensor,
     body: { code: '000000', data: { online: false, state: { state: 'open' } } },
   });
-  const refused = await set(gladys, IDS.garage, 'garage', 0);
+  const refused = await set(gladys, IDS.garage, 'garage', -1);
   assert.equal(refused.success, false);
   assert.equal(server.calls('GarageDoor.toggle').length, 0);
 });
@@ -406,7 +410,7 @@ test('garage doors: a sensor offline refuses the command', async (t) => {
   const { gladys } = await setup(t, { server, config: { ...CONFIG, allow_garage_open: true } });
   await createAll(gladys);
   server.unreachable.add(IDS.garageSensor);
-  const refused = await set(gladys, IDS.garage, 'garage', 0);
+  const refused = await set(gladys, IDS.garage, 'garage', -1);
   assert.equal(refused.success, false);
   assert.match(refused.error, /inconnu/);
   assert.equal(server.calls('GarageDoor.toggle').length, 0);
@@ -417,10 +421,98 @@ test('a garage door without a sensor: every toggle is refused', async (t) => {
   server.us = server.us.filter((d) => d.deviceId !== IDS.garageSensor);
   const { gladys } = await setup(t, { server, config: { ...CONFIG, allow_garage_open: true } });
   await createAll(gladys);
-  const refused = await set(gladys, IDS.garage, 'garage', 0);
+  const refused = await set(gladys, IDS.garage, 'garage', -1);
   assert.equal(refused.success, false);
   assert.match(refused.error, /inconnu/);
   assert.equal(server.calls('GarageDoor.toggle').length, 0);
+});
+
+test('garage doors are a cover command, never a switch', async (t) => {
+  const { gladys, app } = await setup(t);
+  const garage = featureOf(gladys, IDS.garage, 'garage');
+  assert.equal(garage.category, 'shutter');
+  assert.equal(garage.type, 'state');
+  assert.deepEqual([garage.min, garage.max], [-1, 1]);
+  assert.equal(garage.read_only, false);
+  assert.equal(garage.name, 'Porte de garage');
+  // No switch at all on a garage controller: "turn everything on" cannot reach a door.
+  for (const device of app.devices.values()) {
+    if (device.kind === 'garage') {
+      const features = deviceOf(gladys, dev(device.id)).features;
+      assert.ok(
+        features.every((f) => f.category !== 'switch'),
+        device.id,
+      );
+    }
+  }
+});
+
+test('garage doors: stop and other values are refused, nothing is sent', async (t) => {
+  const server = fakeYoLink();
+  server.states[IDS.garageSensor].state = 'open';
+  const { gladys } = await setup(t, { server, config: { ...CONFIG, allow_garage_open: true } });
+  await createAll(gladys);
+  const reads = server.calls('DoorSensor.fetchState').length;
+  const stop = await set(gladys, IDS.garage, 'garage', 0);
+  assert.equal(stop.success, false);
+  assert.match(stop.error, /arrêter/);
+  for (const value of [2, 0.5, 'open']) {
+    assert.equal((await set(gladys, IDS.garage, 'garage', value)).success, false, String(value));
+  }
+  assert.equal(server.calls('DoorSensor.fetchState').length, reads);
+  assert.equal(server.calls('GarageDoor.toggle').length, 0);
+});
+
+test('garage doors: a sensor too slow for the 5 s ack refuses before acting', async (t) => {
+  const server = fakeYoLink();
+  server.states[IDS.garageSensor].state = 'open';
+  const { gladys, advance } = await setup(t, { server });
+  await createAll(gladys);
+  server.delays.push({
+    match: (r) =>
+      r.body?.method === 'DoorSensor.fetchState' && r.body.targetDevice === IDS.garageSensor,
+    ms: 4000,
+  });
+  const pending = set(gladys, IDS.garage, 'garage', -1);
+  await advance(6000);
+  const refused = await pending;
+  assert.equal(refused.success, false);
+  assert.match(refused.error, /à temps/);
+  assert.equal(server.calls('GarageDoor.toggle').length, 0, 'never sent after the deadline');
+});
+
+test('garage doors: while the door moves, even a command "already done" is refused', async (t) => {
+  const server = fakeYoLink();
+  server.doorMoves = false;
+  server.states[IDS.garageSensor].state = 'open';
+  const { gladys, advance } = await setup(t, {
+    server,
+    config: { ...CONFIG, allow_garage_open: true },
+  });
+  await createAll(gladys);
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', -1), { success: true });
+  await advance(2000);
+  // The sensor still says "open" (state of departure): "open" is not a success.
+  const ignored = await set(gladys, IDS.garage, 'garage', 1);
+  assert.equal(ignored.success, false);
+  assert.match(ignored.error, /commande ignorée/);
+  assert.equal(server.calls('GarageDoor.toggle').length, 1);
+});
+
+test('garage doors: an unknown sensor state never lifts the guard', async (t) => {
+  const server = fakeYoLink();
+  server.doorMoves = false;
+  server.states[IDS.garageSensor].state = 'open';
+  const { gladys, app, advance } = await setup(t, { server });
+  await createAll(gladys);
+  assert.deepEqual(await set(gladys, IDS.garage, 'garage', -1), { success: true });
+  const garage = app.devices.get(IDS.garage);
+  app.readings.set(IDS.garageSensor, {});
+  assert.equal(app.garageMoving(garage), true, 'no state: still guarded');
+  app.readings.set(IDS.garageSensor, { state: 'open' });
+  assert.equal(app.garageMoving(garage), true, 'the state of departure: still guarded');
+  await advance(61_000);
+  assert.equal(app.garageMoving(garage), false, 'expired');
 });
 
 test('sirens: stopping can be turned off', async (t) => {

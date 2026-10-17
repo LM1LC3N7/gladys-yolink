@@ -12,6 +12,7 @@ import { YoLinkClient } from './client.js';
 import { normalizeConfig } from './config.js';
 import {
   ENDPOINTS,
+  GLADYS,
   LEAK_STOP_MODELS,
   MOMENT_EVENTS,
   MQTT_RECORD_EVENT,
@@ -573,9 +574,12 @@ export class YoLinkApp {
     if (!target || !Object.hasOwn(KIND_OF_ROLE, role)) {
       throw new Error(`${feature?.external_id} cannot be set`);
     }
-    const on = Number(value);
-    if (on !== 0 && on !== 1) {
-      throw new Error(`Unexpected value "${value}" (0 or 1)`);
+    const v = Number(value);
+    // The garage door is a cover (SHUTTER_STATE: open 1, close -1, stop 0).
+    const accepted =
+      role === 'garage' ? [GLADYS.COVER_OPEN, GLADYS.COVER_CLOSE, GLADYS.COVER_STOP] : [0, 1];
+    if (!accepted.includes(v)) {
+      throw new Error(`Unexpected value "${value}" (${accepted.join(', ')})`);
     }
     if (this.refused) {
       throw new Error(word(T.refused, this.config.language));
@@ -585,14 +589,25 @@ export class YoLinkApp {
       throw new Error('Unknown YoLink device: wait for the first reading of the account');
     }
     if (role === 'garage' && device.kind === 'garage') {
+      if (v === GLADYS.COVER_STOP) {
+        // The controller only toggles: a toggle sent as a "stop" may reverse the door.
+        throw this.denied('garageStop');
+      }
+      // Gladys shows a failure after 5 s: past the deadline, nothing is sent.
+      const deadline = this.now() + TIMINGS.garageDeadline;
       // One garage command at a time: two "close" received together must not
       // both see the door open and send two toggles.
       return this.serialized(device.id, async () => {
-        const door = await this.refreshGarageDoor(device);
-        return this.execute(device, role, this.commandOf(device, role, on === 1, undefined, door));
+        const door = await this.refreshGarageDoor(device, deadline);
+        if (this.now() >= deadline) {
+          throw this.denied('garageSlow');
+        }
+        // commandOf() is synchronous: the toggle leaves right after this check.
+        const command = this.commandOf(device, role, v === GLADYS.COVER_OPEN, undefined, door);
+        return this.execute(device, role, command, door);
       });
     }
-    return this.execute(device, role, this.commandOf(device, role, on === 1, target.index));
+    return this.execute(device, role, this.commandOf(device, role, v === 1, target.index));
   }
 
   /** Runs `task` after the previous task of the same key (a promise chain per key). */
@@ -609,17 +624,22 @@ export class YoLinkApp {
     return run;
   }
 
-  /** Sends a command of commandOf() and shows its result. */
-  async execute(device, role, command) {
+  /**
+   * Sends a command of commandOf() and shows its result. `door`: for a garage,
+   * the sensor state read just before the toggle (the state of departure the
+   * guard keeps).
+   */
+  async execute(device, role, command, door) {
     if (!command) {
       return;
     }
     let answer;
+    // Set after the request (or its failure), with the state of departure.
     const guard = () => {
       if (role === 'garage') {
         this.garageGuards.set(device.id, {
           until: this.now() + TIMINGS.garageGuard,
-          door: this.garageState(device),
+          door,
         });
       }
     };
@@ -656,17 +676,32 @@ export class YoLinkApp {
   /**
    * Just before a garage toggle: the sensor of the door read again, so the
    * toggle never relies on an old state. Resolves "open" or "closed", or
-   * undefined (no sensor, any error, sensor offline, no usable state): the
-   * door is then unknown and commandOf() refuses.
+   * undefined (no sensor, any error, sensor offline, no usable state, no
+   * answer before `deadline`): the door is then unknown and commandOf() or
+   * setValue() refuses.
    */
-  async refreshGarageDoor(garage) {
+  async refreshGarageDoor(garage, deadline = Infinity) {
     const door = this.doorOf(garage);
     if (!door) {
       return undefined;
     }
     let state;
+    let timer;
     try {
-      const data = await this.client.state(door);
+      const late = new Promise((_, reject) => {
+        const wait = deadline - this.now();
+        if (Number.isFinite(wait)) {
+          timer = this.timers.setTimeout(
+            () => reject(Object.assign(new Error('no answer in time'), { kind: 'late' })),
+            Math.max(0, wait),
+          );
+        }
+      });
+      late.catch(() => {});
+      const read = this.client.state(door);
+      // A read that ends after the deadline is dropped (never an unhandled rejection).
+      read.catch(() => {});
+      const data = await Promise.race([read, late]);
       const reading = flatten(data);
       if (data.online === false) {
         this.online.set(door.id, false);
@@ -680,6 +715,10 @@ export class YoLinkApp {
         this.online.set(door.id, false);
       }
       this.logger.info(`${deviceName(door, 'en')}: no state (${errorReason(err)})`);
+    } finally {
+      if (timer !== undefined) {
+        this.timers.clearTimeout(timer);
+      }
     }
     for (const g of this.garagesOf(door)) {
       this.queue(g);
@@ -687,13 +726,18 @@ export class YoLinkApp {
     return state;
   }
 
-  /** A garage toggle in progress: the guard holds until it expires or the sensor reports a change. */
+  /**
+   * A garage toggle in progress: the guard holds until it expires or the
+   * sensor reports a state other than the one of departure. An unknown state
+   * (sensor offline, no reading) never lifts it.
+   */
   garageMoving(garage) {
     const guard = this.garageGuards.get(garage.id);
     if (!guard) {
       return false;
     }
-    if (this.now() >= guard.until || this.garageState(garage) !== guard.door) {
+    const state = this.garageState(garage);
+    if (this.now() >= guard.until || (state !== undefined && state !== guard.door)) {
       this.garageGuards.delete(garage.id);
       return false;
     }
@@ -780,13 +824,15 @@ export class YoLinkApp {
           // A toggle on a door of unknown state may do the opposite.
           throw this.denied('garageUnknown');
         }
+        if (this.garageMoving(device)) {
+          // A second toggle while the door moves would reverse it; and while
+          // it moves the sensor still shows the state of departure, so even a
+          // command "already done" is refused rather than reported a success.
+          this.logger.info(`${deviceName(device, 'en')}: command ignored, the door is moving`);
+          throw this.denied('garageMoving');
+        }
         if ((current === 'open') === on) {
           return null;
-        }
-        if (this.garageMoving(device)) {
-          // A second toggle while the door moves would reverse it.
-          this.logger.info(`${deviceName(device, 'en')}: toggle ignored, the door is moving`);
-          throw this.denied('garageMoving');
         }
         return { method: 'toggle', params: undefined, log: on ? '(open)' : '(close)' };
       }

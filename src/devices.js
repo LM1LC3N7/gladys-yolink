@@ -56,7 +56,9 @@ export const FEATURES = {
   valve: { category: C.SWITCH, type: T.SWITCH.BINARY, ...binary, ...command },
   lock: { category: C.LOCK, type: T.LOCK.BINARY, ...binary, ...command },
   siren: { category: C.SIREN, type: T.SIREN.BINARY, ...binary, ...command },
-  garage: { category: C.SWITCH, type: T.SWITCH.BINARY, ...binary, ...command },
+  // A cover command (open 1, close -1; stop 0 refused: the controller only
+  // toggles), never a switch: "turn everything on/off" must not reach a door.
+  garage: { category: C.SHUTTER, type: T.SHUTTER.STATE, min: -1, max: 1, ...command },
 };
 
 /** The sockets of a power strip before its first reading (YS6801: four sockets and the USB). */
@@ -253,7 +255,10 @@ export function statesOf(device, reading, { door, sockets } = {}) {
     }
     case 'garage': {
       const state = door ? openState(door) : undefined;
-      add('garage', state === undefined ? undefined : bit(state === 'open'));
+      add(
+        'garage',
+        state === undefined ? undefined : state === 'open' ? GLADYS.COVER_OPEN : GLADYS.COVER_CLOSE,
+      );
       break;
     }
     default:
