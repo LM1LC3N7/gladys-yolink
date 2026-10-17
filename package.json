@@ -1,6 +1,6 @@
 {
   "name": "gladys-yolink",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Gladys Assistant external integration for YoLink (official Open API v2, live MQTT events). Unofficial, not affiliated with YoSmart.",
   "type": "module",
