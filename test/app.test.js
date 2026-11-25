@@ -727,6 +727,116 @@ test('valves: an opening that cannot leave within 3.5 s is never sent late', asy
   assert.equal(server.calls('Manipulator.setState').length, 0);
 });
 
+test('valves: a device created before 0.1.3 keeps its switch when published again', async (t) => {
+  const { gladys, app, advance } = await setup(t);
+  await createAll(gladys);
+  assert.equal(
+    deviceOf(gladys, dev(IDS.valve)).features.some((f) => f.external_id.endsWith(':valve')),
+    false,
+    'a new device: no switch',
+  );
+  const old = structuredClone(deviceOf(gladys, dev(IDS.valve)));
+  old.features.push({ ...old.features[0], external_id: `${dev(IDS.valve)}:valve` });
+  await gladys.fake.deviceCreated(old);
+  gladys.devices = gladys.devices.map((d) => (d.external_id === old.external_id ? old : d));
+  app.nextRefreshAt = 0;
+  await advance(MINUTE);
+  const valve = deviceOf(gladys, dev(IDS.valve)).features.find((f) =>
+    f.external_id.endsWith(':valve'),
+  );
+  assert.ok(valve, 'still offered: saving it again loses nothing');
+  assert.deepEqual([valve.category, valve.type, valve.read_only], ['switch', 'binary', false]);
+});
+
+test('valves: clicked while refused, sent 25 h later: its 24 h count from that send', async (t) => {
+  const server = fakeYoLink();
+  server.stuck.add(IDS.valve);
+  const { gladys, app, advance } = await setup(t, { server });
+  await createAll(gladys);
+  app.refused = true;
+  assert.equal((await press(gladys, IDS.valve, 'water_close')).success, false);
+  t.mock.timers.tick(25 * 60 * MINUTE);
+  await settle();
+  await gladys.fake.action(ACTIONS.TEST_CONNECTION, {});
+  await until(() => closesOf(server).length === 1, 'sent once the credentials work');
+  await advance(60_000);
+  assert.equal(app.keeper.entries.size, 1, 'not given up');
+  assert.equal(closesOf(server).length, 2);
+});
+
+test('valves: an opening whose option is unchecked right before the request: not sent', async (t) => {
+  const { gladys, server, app } = await setup(t, {
+    config: { ...CONFIG, allow_valve_open: true },
+  });
+  await createAll(gladys);
+  server.states[IDS.valve].state = 'closed';
+  const token = app.client.token.bind(app.client);
+  app.client.token = async () => {
+    app.config = { ...app.config, allowValveOpen: false };
+    return token();
+  };
+  const ack = await press(gladys, IDS.valve, 'water_open');
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /ouverture des vannes/);
+  assert.equal(server.calls('Manipulator.setState').length, 0);
+});
+
+test('valves: a shutoff clicked right before the request of an opening cancels it', async (t) => {
+  const { gladys, server, app } = await setup(t, {
+    config: { ...CONFIG, allow_valve_open: true },
+  });
+  await createAll(gladys);
+  server.states[IDS.valve].state = 'closed';
+  const token = app.client.token.bind(app.client);
+  let clicked = false;
+  app.client.token = async () => {
+    if (!clicked) {
+      clicked = true;
+      app.keeper.click(IDS.valve, 'Main valve');
+    }
+    return token();
+  };
+  const ack = await press(gladys, IDS.valve, 'water_open');
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /Annulée par une coupure/);
+  assert.equal(
+    server.calls('Manipulator.setState').filter((r) => r.body.params.state === 'open').length,
+    0,
+  );
+});
+
+test('valves: a shutoff clicked while the configuration is missing is kept in /data', async (t) => {
+  const data = dataDir(t);
+  const server = fakeYoLink();
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
+  const gladys = createFakeGladys({ config: {} });
+  const app = new YoLinkApp({
+    gladys,
+    logger: createLogger({ level: 'silent' }),
+    transport: server.transport,
+    connect: (endpoint, options) => fakeMqtt(server).connect(endpoint, options),
+    now: () => Date.now(),
+    monotonic: () => Date.now(),
+    stateSpacing: 0,
+    dataDir: data,
+  });
+  apps.add(app);
+  await app.connectedWith(
+    () => undefined,
+    async () => {
+      throw new Error('HTTP 500');
+    },
+  );
+  await app
+    .setValue({ name: 'Main valve' }, { external_id: `${dev(IDS.valve)}:water_close` }, 1)
+    .catch(() => {});
+  await app.keeper.saving;
+  assert.deepEqual(
+    keptFile(data).map((e) => e.id),
+    [IDS.valve],
+  );
+});
+
 test('valves: Gladys connected, the configuration of the SDK used; missing, asked again', async (t) => {
   const { gladys, app } = await setup(t);
   gladys.getConfig = async () => {

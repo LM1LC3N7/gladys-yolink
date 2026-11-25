@@ -55,7 +55,7 @@ export const FEATURES = {
   socket: { category: C.SWITCH, type: T.SWITCH.BINARY, ...binary, ...command },
   power: { category: C.SWITCH, type: T.SWITCH.POWER, unit: U.WATT, min: 0, max: 4000 },
   // The valve switch of 0.1.0-0.1.2: still understood (scenes made with it)
-  // and still updated where created, no longer offered in Discovery.
+  // and still updated where created, offered only to a device that has it.
   valve: { category: C.SWITCH, type: T.SWITCH.BINARY, ...binary, ...command },
   valve_open: { category: C.UNKNOWN, type: T.SENSOR.BINARY, ...binary },
   // Push buttons: never a switch a "turn everything off" could reach.
@@ -186,13 +186,19 @@ function params(entries) {
 }
 
 /** The Gladys devices of the account. `readings`: deviceId -> last reading. */
-export function buildDevices(gladys, devices, readings, language) {
+export function buildDevices(gladys, devices, readings, language, created = new Set()) {
   return devices.map((device) => {
     const ids = deviceIds(gladys, device.id);
+    const features = featuresOf(ids, device, readings.get(device.id), language);
+    // A valve created before 0.1.3 keeps its switch when saved again from
+    // Discovery: its scenes keep working (republication loses nothing).
+    if (device.kind === 'valve' && created.has(ids.feature('valve'))) {
+      features.push(feature(ids, 'valve', language));
+    }
     return {
       name: deviceName(device, language),
       external_id: ids.device,
-      features: featuresOf(ids, device, readings.get(device.id), language),
+      features,
       params: params([
         ['yolink_id', device.id],
         ['yolink_type', device.type],

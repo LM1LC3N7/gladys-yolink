@@ -142,12 +142,15 @@ export class YoLinkClient {
    * One BDDP; a refused token is renewed once and the call retried.
    * `deadline` (ms, optional): past it, nothing is sent (a command whose
    * answer Gladys no longer waits for is never sent, nor sent again).
+   * `check` (optional): called right before each request, may throw.
    */
-  async call(endpoint, bddp, deadline = Infinity) {
+  async call(endpoint, bddp, deadline = Infinity, check) {
     const late = () => {
       if (this.now() >= deadline) {
         throw new YoLinkError('late', 'not sent: past the deadline of the command');
       }
+      // The caller's own check, right before the request leaves (may throw).
+      check?.();
     };
     const token = await this.token();
     late();
@@ -185,7 +188,7 @@ export class YoLinkClient {
   }
 
   /** `<type>.<method>` on one device (`{ id, token, type, endpoint }` of src/inventory.js). */
-  invoke(device, method, params, deadline) {
+  invoke(device, method, params, deadline, check) {
     return this.call(
       device.endpoint,
       {
@@ -195,6 +198,7 @@ export class YoLinkClient {
         ...(params === undefined ? {} : { params }),
       },
       deadline,
+      check,
     );
   }
 

@@ -87,12 +87,12 @@ lets go of a shutoff asked before it (the opening is what you asked last).
 
 **The water commands are buttons**, never a switch: a voice assistant, a
 "turn everything off" command or a scene acting on every switch never
-reaches them. Since 0.1.3 the valve switch is no longer offered in
-Discovery; on a device added before, it still works (a scene "leak → valve
-to 0" keeps protecting) but it can be reached by a "turn everything off".
-**What to do**: in your scenes, replace the valve switch with the **Shut the
-water off** button, then run Discovery again and save the device so that the
-switch goes away.
+reaches them. Since 0.1.3 the valve switch is no longer offered for a device
+added from now on; a device added before keeps it, even when saved again
+from Discovery (a scene "leak → valve to 0" keeps protecting), but it can be
+reached by a "turn everything off". **What to do**: in your scenes, replace
+the valve switch with the **Shut the water off** button. To get rid
+of the switch, delete the device in Gladys and add it again from Discovery.
 
 A YoLink garage door appears in Gladys as a **cover command** (like a
 shutter: open, close), never as a switch, so a scene that turns everything on

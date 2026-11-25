@@ -389,6 +389,8 @@ export class YoLinkApp {
   async connectedWith(current, fetch, attempt = 0) {
     this.timers.clearTimeout(this.configTimer);
     this.configTimer = undefined;
+    // /data first: a shutoff clicked while the configuration is missing is kept there too.
+    await this.loadShutoffs();
     let config = current();
     if (!config || typeof config !== 'object') {
       try {
@@ -695,6 +697,7 @@ export class YoLinkApp {
       [...this.devices.values()],
       this.readings,
       this.config.language,
+      this.createdFeatures(),
     );
     const json = JSON.stringify(devices);
     if (json === this.published) {
@@ -918,8 +921,23 @@ export class YoLinkApp {
       throw this.denied('closeJustClicked');
     }
     const clicks = this.keeper.clickCount(device.id);
-    // Never sent after Gladys showed a failure (5 s): 3.5 s, like the garage.
-    await this.execute(device, 'valve', command, undefined, this.now() + TIMINGS.garageDeadline);
+    // Never sent after Gladys showed a failure (5 s): 3.5 s, like the garage;
+    // the option and the shutoffs checked again right before the request.
+    await this.execute(
+      device,
+      'valve',
+      command,
+      undefined,
+      this.now() + TIMINGS.garageDeadline,
+      () => {
+        if (!this.config.allowValveOpen) {
+          throw this.denied('valve');
+        }
+        if (this.keeper.clickCount(device.id) !== clicks) {
+          throw this.denied('cancelledByClose');
+        }
+      },
+    );
     // Sent after the last shutoff of this valve: that shutoff is not fought for.
     if (this.keeper.clickCount(device.id) === clicks) {
       this.keeper.letGo(device.id, 'let go by an opening sent after it');
@@ -945,7 +963,7 @@ export class YoLinkApp {
    * the sensor state read just before the toggle (the state of departure the
    * guard keeps).
    */
-  async execute(device, role, command, door, deadline) {
+  async execute(device, role, command, door, deadline, check) {
     if (!command) {
       return;
     }
@@ -960,7 +978,7 @@ export class YoLinkApp {
       }
     };
     try {
-      answer = await this.client.invoke(device, command.method, command.params, deadline);
+      answer = await this.client.invoke(device, command.method, command.params, deadline, check);
     } catch (err) {
       // A toggle that timed out may still have reached the door: guarded too.
       guard();

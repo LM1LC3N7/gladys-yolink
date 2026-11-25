@@ -65,7 +65,7 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (YoLinkApp) ⇄ src/client.js 
   (`allow_unlock`, `allow_garage_open`, `allow_valve_open`,
   `allow_siren_stop`). Valves: buttons `water_close` / `water_open` and
   `valve_open` (read only); the `valve` switch of 0.1.0-0.1.2 is still
-  understood, no longer in Discovery. Closing a valve behind no option (src/shutoff.js):
+  understood, offered only to a device that already has it. Closing a valve behind no option (src/shutoff.js):
   sent at once, kept in memory and in `/data/yolink-shutoffs.json` until a
   state read started after the send, or a live report received after it,
   shows the valve closed (device online) — the state read only with a report

@@ -41,11 +41,12 @@ the notes of the version's GitHub Release.
 
 ### Removed
 
-- The valve switch is no longer offered in Discovery. On a device added
-  before, it keeps working (your scenes still close the valve) but a "turn
-  everything off" could now shut the water off. **What to do**: in your
-  scenes, replace the valve switch with the "Shut the water off" button, then
-  run Discovery again and save the device.
+- The valve switch is no longer offered for a device added from now on. A
+  device added before keeps it, even when saved again from Discovery: your
+  scenes still close the valve, but a "turn everything off" could now shut
+  the water off. **What to do**: in your scenes, replace the valve switch
+  with the "Shut the water off" button. To get rid of the switch,
+  delete the device in Gladys and add it again from Discovery.
 - The option "Allow closing the water valves" (`allow_valve_close`): closing
   is always allowed. A configuration that still holds it keeps working, the
   value is ignored.

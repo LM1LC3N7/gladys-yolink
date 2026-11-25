@@ -148,6 +148,10 @@ export const T = {
       en: 'YoLink refuses the UAID or the secret key: the shutoff is kept and leaves as soon as they work again.',
       fr: 'YoLink refuse l’UAID ou la clé secrète : la coupure est gardée et part dès qu’ils fonctionnent de nouveau.',
     },
+    cancelledByClose: {
+      en: 'Cancelled by a shutoff asked after it: nothing sent.',
+      fr: "Annulée par une coupure demandée après elle : rien n'est envoyé.",
+    },
     closeJustClicked: {
       en: 'A shutoff of this valve was asked less than 20 s ago: the opening is refused, nothing sent.',
       fr: "Une coupure de cette vanne a été demandée il y a moins de 20 s : l'ouverture est refusée, rien n'est envoyé.",

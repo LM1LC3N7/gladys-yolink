@@ -96,11 +96,13 @@ est ce que vous avez demandé en dernier).
 **Les commandes de l'eau sont des boutons**, jamais un interrupteur : un
 assistant vocal, une commande « tout éteindre » ou une scène qui agit sur
 tous les interrupteurs ne les atteint pas. Depuis la 0.1.3, l'interrupteur de
-vanne n'est plus proposé en Découverte ; sur un appareil ajouté avant, il
-fonctionne toujours (une scène « fuite → vanne à 0 » protège encore) mais un
-« tout éteindre » peut l'atteindre. **À faire** : dans vos scènes, remplacez
-l'interrupteur de vanne par le bouton **Couper l'eau**, puis relancez la
-Découverte et enregistrez l'appareil pour que l'interrupteur disparaisse.
+vanne n'est plus proposé pour un appareil ajouté désormais ; un appareil
+ajouté avant le garde, même enregistré de nouveau depuis la Découverte (une
+scène « fuite → vanne à 0 » protège encore), mais un « tout éteindre » peut
+l'atteindre. **À faire** : dans vos scènes, remplacez l'interrupteur de vanne
+par le bouton **Couper l'eau**. Pour retirer l'interrupteur,
+supprimez l'appareil dans Gladys puis ajoutez-le de nouveau depuis la
+Découverte.
 
 La porte de garage YoLink apparaît dans Gladys comme une **commande de volet**
 (ouvrir, fermer), jamais comme un interrupteur : une scène qui allume ou
