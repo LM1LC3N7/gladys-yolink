@@ -45,6 +45,23 @@ up to date at the end of every milestone.
 - [ ] **Milestone 4 — first release**: Docker image build check, Release
       workflow, topic, GHCR package public.
 
+## Next patch
+
+- **`getConfig()` failing in `connected`** (seen at the shutoff patch,
+  2026-11-25, existing before it): the handler logs "Start failed" and never
+  tries again, so the integration stays without credentials until the next
+  reconnection; a shutoff clicked meanwhile is kept but cannot leave. Retry
+  spaced without end, exact status, a test that fails it once.
+- **The valve is a `switch`/`binary` feature**: a "turn everything off" can
+  now shut the water off without any option (said in the docs). A dedicated
+  type would change the feature keys (external ids are forever): Louis's
+  call.
+- **The 24 h of a kept shutoff count per process** (monotonic clock, model
+  gladys-drop): a restart before the shutoff is seen closed starts them
+  again from its next send.
+- **Pause of a 429** is still compared with the wall clock (`pausedUntil`,
+  existing code), bounded for the shutoffs (YoLink's longest pause).
+
 ## To check on a real account
 
 - `fetchState` answers: is `data.state` the nested reading for every type
@@ -100,9 +117,17 @@ up to date at the end of every milestone.
 - **Safety options**: `allow_unlock` off (locking always allowed),
   `allow_garage_open` off (closing a door its sensor reports open is
   allowed), `allow_valve_open` off.
-- **`allow_valve_close`, off by default — Louis's decision, 2026-10-17**:
-  kept off (the PIPELINE rule puts valve "coupure" behind an option); the
-  anti-leak scene needs the user to turn it on.
+- **Closing a valve never refused — Louis's decision, 2026-11-25** (replaces
+  the one of 2026-10-17, `allow_valve_close` off): shutting the water off
+  protects; `allow_valve_close` removed (an old configuration holding it is
+  ignored). Model gladys-drop: the shutoff is kept (memory,
+  `/data/yolink-shutoffs.json`) and sent again until a state read started
+  after the send, or a live report received after it, shows the valve closed
+  (online); read again 60 s after each send, 3 resends then every 15 min,
+  again at restart and after a YoLink outage, given up 24 h after its first
+  send (monotonic clock, said in the status). An opening is refused within
+  20 s of a shutoff and lets an older shutoff go. The answer of setState is
+  shown but never taken for a confirmation.
 - **`allow_siren_stop`, on by default — Louis's decision, 2026-10-17**: kept
   on; a YoLink siren is not an armed alarm system, and stopping one triggered
   by mistake should stay possible; off, the siren stops after its own alarm

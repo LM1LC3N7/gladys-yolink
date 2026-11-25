@@ -4,8 +4,10 @@
 **YoLink** (YoSmart), through the official **YoLink Open API v2**: door,
 motion, water leak, temperature and humidity, and vibration sensors, plugs,
 switches and power strips, water valves, locks, sirens and garage doors, with
-live events over MQTT. Unlocking, opening a garage door and opening or
-closing a water valve are off until the user allows them. Unofficial, not
+live events over MQTT. Unlocking, opening a garage door and opening a water
+valve are off until the user allows them; closing a water valve (shutting the
+water off) is never refused and is kept until YoLink shows it closed.
+Unofficial, not
 affiliated with YoSmart.
 
 User documentation: [docs/en.md](docs/en.md) · [docs/fr.md](docs/fr.md).
@@ -60,8 +62,15 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (YoLinkApp) ⇄ src/client.js 
   channel 0 is the USB ports.
 - **Commands**: `<type>.setState` (plugs, switches, sockets with `chs`, valves,
   locks, sirens) and `<type>.toggle` (garage doors), behind the safety options
-  (`allow_unlock`, `allow_garage_open`, `allow_valve_open`, `allow_valve_close`,
-  `allow_siren_stop`). The garage door is a `shutter`/`state` feature (open 1,
+  (`allow_unlock`, `allow_garage_open`, `allow_valve_open`,
+  `allow_siren_stop`). Closing a valve behind no option (src/shutoff.js):
+  sent at once, kept in memory and in `/data/yolink-shutoffs.json` until a
+  state read started after the send, or a live report received after it,
+  shows the valve closed (device online); read again 60 s after each send
+  and sent again (3 times, then every 15 min), sent again at a restart and
+  when YoLink answers after a failure, waits for a rate-limit pause, given up
+  24 h after its first send (monotonic, in the status). An opening is refused
+  within 20 s of a shutoff and lets an older shutoff go. The garage door is a `shutter`/`state` feature (open 1,
   close -1; stop 0 refused, the controller only toggles), never a switch, so
   a "turn everything on/off" cannot reach it. A garage command reads the
   sensor again first (refused when offline, unknown or not answered within

@@ -129,15 +129,31 @@ export const T = {
       en: 'Opening water valves from Gladys is turned off: allow it in the configuration of the YoLink integration.',
       fr: "L'ouverture des vannes d'eau depuis Gladys est désactivée : autorisez-la dans la configuration de l'intégration YoLink.",
     },
-    valveClose: {
-      en: 'Closing water valves from Gladys is turned off: allow it in the configuration of the YoLink integration.',
-      fr: "La fermeture des vannes d'eau depuis Gladys est désactivée : autorisez-la dans la configuration de l'intégration YoLink.",
+    closeKept: {
+      en: 'The shutoff could not reach the valve yet: it is kept and sent again until YoLink shows the valve closed (24 h at most).',
+      fr: "La coupure n'a pas encore pu atteindre la vanne : elle est gardée et renvoyée jusqu'à ce que YoLink montre la vanne fermée (24 h au plus).",
+    },
+    closeKeptRefused: {
+      en: 'YoLink refuses the UAID or the secret key: the shutoff is kept and leaves as soon as they work again.',
+      fr: 'YoLink refuse l’UAID ou la clé secrète : la coupure est gardée et part dès qu’ils fonctionnent de nouveau.',
+    },
+    closeJustClicked: {
+      en: 'A shutoff of this valve was asked less than 20 s ago: the opening is refused, nothing sent.',
+      fr: "Une coupure de cette vanne a été demandée il y a moins de 20 s : l'ouverture est refusée, rien n'est envoyé.",
     },
     sirenStop: {
       en: 'Stopping sirens from Gladys is turned off: allow it in the configuration of the YoLink integration.',
       fr: "L'arrêt des sirènes depuis Gladys est désactivé : autorisez-le dans la configuration de l'intégration YoLink.",
     },
   },
+  shutoffsKept: (n, held) => ({
+    en: ` ${n === 1 ? '1 shutoff kept' : `${n} shutoffs kept`} until YoLink shows the valve closed${held ? ` (${held} held: sent again every 15 min)` : ''}; given up 24 h after it first left.`,
+    fr: ` ${n === 1 ? '1 coupure gardée' : `${n} coupures gardées`} jusqu'à ce que YoLink montre la vanne fermée${held ? ` (${held} retenue${held > 1 ? 's' : ''} : renvoyée${held > 1 ? 's' : ''} toutes les 15 min)` : ''} ; abandon 24 h après le premier envoi.`,
+  }),
+  shutoffsGivenUp: (names) => ({
+    en: ` Shutoff given up after 24 h without YoLink showing the valve closed: ${names}.`,
+    fr: ` Coupure abandonnée après 24 h sans que YoLink montre la vanne fermée : ${names}.`,
+  }),
   leakStopAsleep: {
     en: 'The LeakStop did not answer. In its power-saving (class A) mode it only listens from time to time: try again in a few minutes, or change its mode in the YoLink app.',
     fr: "Le LeakStop n'a pas répondu. En mode économie d'énergie (classe A), il n'écoute que de temps en temps : réessayez dans quelques minutes, ou changez son mode dans l'application YoLink.",

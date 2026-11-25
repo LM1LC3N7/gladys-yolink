@@ -6,6 +6,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DEVICE_TRANSPORTS, createLogger } from '@gladysassistant/integration-sdk';
 import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
 import { YoLinkApp } from '../src/app.js';
@@ -17,7 +20,30 @@ import { fakeMqtt, fakeYoLink, settle } from './helpers/fakeYoLink.js';
 const CONFIG = { uaid: UAID, secret_key: SECRET };
 const dev = (id) => `ext:test-integration:yolink:${id}`;
 
-async function setup(t, { config = CONFIG, server = fakeYoLink(), autoConnect = true } = {}) {
+/** The apps of the running test: stopped before its /data is removed. */
+const apps = new Set();
+
+/** A new empty directory standing for /data, removed after the test. */
+const dataDir = (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'gladys-yolink-'));
+  // Registered before the app's own hook: stop every app, let its last write
+  // to /data land, then remove the directory (a later write would create it again).
+  t.after(async () => {
+    for (const app of apps) {
+      app.stop();
+      await app.keeper.saving;
+    }
+    apps.clear();
+    await settle();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  return dir;
+};
+
+async function setup(
+  t,
+  { config = CONFIG, server = fakeYoLink(), autoConnect = true, data = dataDir(t) } = {},
+) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
   const gladys = createFakeGladys({ config });
   const mqtt = fakeMqtt(server, { autoConnect });
@@ -33,9 +59,12 @@ async function setup(t, { config = CONFIG, server = fakeYoLink(), autoConnect = 
     transport: server.transport,
     connect: (endpoint, options) => mqtt.connect(endpoint, options),
     now: () => Date.now(),
+    monotonic: () => Date.now(),
     randomId: () => `uuid-${(n += 1)}`,
     stateSpacing: 0,
+    dataDir: data,
   });
+  apps.add(app);
   registerHandlers(gladys, app);
   await gladys.connect();
   await settle();
@@ -47,7 +76,7 @@ async function setup(t, { config = CONFIG, server = fakeYoLink(), autoConnect = 
     }
     await settle();
   };
-  return { gladys, app, server, mqtt, advance, lines };
+  return { gladys, app, server, mqtt, advance, lines, data };
 }
 
 const deviceOf = (gladys, id) => gladys.fake.discoveredDevices.find((d) => d.external_id === id);
@@ -257,45 +286,300 @@ test('locks: locking always works, unlocking only when allowed', async (t) => {
   assert.equal(last(gladys, IDS.lock, 'lock'), 0, 'the answer of the lock');
 });
 
-test('valves: closing and opening only when allowed', async (t) => {
-  const { gladys, server } = await setup(t);
+// --- Valves: the shutoff, never refused ------------------------------------------------
+
+const keptFile = (data) => {
+  try {
+    return JSON.parse(readFileSync(join(data, 'yolink-shutoffs.json'), 'utf8')).shutoffs;
+  } catch {
+    return undefined;
+  }
+};
+const closesOf = (server, type = 'Manipulator') =>
+  server
+    .calls(`${type}.setState`)
+    .filter((r) => (r.body.params.state ?? r.body.params.valve) === 'close');
+const statusFr = (gladys) => gladys.fake.connectionStatus.message.fr;
+
+test('valves: closing needs no option, kept until YoLink shows it closed', async (t) => {
+  const { gladys, server, app, advance, data } = await setup(t);
   await createAll(gladys);
-  const closeRefused = await set(gladys, IDS.valve, 'valve', 0);
-  assert.equal(closeRefused.success, false);
-  assert.match(closeRefused.error, /fermeture des vannes/);
-  assert.equal(server.calls('Manipulator.setState').length, 0);
-
-  await gladys.fake.configUpdated({ ...CONFIG, allow_valve_close: true });
+  const reads = server.calls('Manipulator.fetchState').length;
   assert.deepEqual(await set(gladys, IDS.valve, 'valve', 0), { success: true });
-  assert.deepEqual(server.calls('Manipulator.setState')[0].body.params, { state: 'close' });
-  assert.equal(last(gladys, IDS.valve, 'valve'), 0);
+  assert.equal(server.calls('Manipulator.fetchState').length, reads, 'nothing read before');
+  assert.deepEqual(closesOf(server)[0].body.params, { state: 'close' });
+  assert.equal(last(gladys, IDS.valve, 'valve'), 0, 'the answer is shown');
+  // The answer of the command is not a confirmation: kept until a later read.
+  assert.equal(app.keeper.entries.size, 1);
+  await app.keeper.saving;
+  assert.deepEqual(keptFile(data), [{ id: IDS.valve, name: 'Main valve', at: NOW }]);
+  assert.match(statusFr(gladys), /1 coupure gardée jusqu'à ce que YoLink montre la vanne fermée/);
+  await advance(60_000);
+  assert.equal(server.calls('Manipulator.fetchState').length, reads + 1, 'read at 60 s');
+  assert.equal(app.keeper.entries.size, 0, 'seen closed');
+  await app.keeper.saving;
+  assert.deepEqual(keptFile(data), []);
+  assert.doesNotMatch(statusFr(gladys), /coupure/);
+  await advance(5 * MINUTE);
+  assert.equal(closesOf(server).length, 1, 'never sent again');
 
-  const refused = await set(gladys, IDS.valve, 'valve', 1);
-  assert.equal(refused.success, false);
-  assert.match(refused.error, /vannes/);
-  assert.equal(server.calls('Manipulator.setState').length, 1);
-
+  // A LeakStop: its own parameters.
   assert.deepEqual(await set(gladys, IDS.leakStop, 'valve', 0), { success: true });
   assert.deepEqual(server.calls('WaterMeterController.setState')[0].body.params, {
     valve: 'close',
   });
   assert.equal(last(gladys, IDS.leakStop, 'valve'), 0);
-
-  await gladys.fake.configUpdated({ ...CONFIG, allow_valve_close: true, allow_valve_open: 'true' });
-  assert.deepEqual(await set(gladys, IDS.valve, 'valve', 1), { success: true });
-  assert.equal(last(gladys, IDS.valve, 'valve'), 1);
 });
 
-test('a LeakStop that does not answer: the class A message', async (t) => {
+test('valves: opening behind its option, refused within 20 s of a shutoff', async (t) => {
+  const server = fakeYoLink();
+  server.stuck.add(IDS.valve);
+  const { gladys, app, advance } = await setup(t, { server });
+  await createAll(gladys);
+  const refused = await set(gladys, IDS.valve, 'valve', 1);
+  assert.equal(refused.success, false);
+  assert.match(refused.error, /ouverture des vannes/);
+  assert.equal(server.calls('Manipulator.setState').length, 0);
+  await gladys.fake.configUpdated({ ...CONFIG, allow_valve_open: 'true' });
+  assert.deepEqual(await set(gladys, IDS.valve, 'valve', 0), { success: true });
+  await advance(19_000);
+  const early = await set(gladys, IDS.valve, 'valve', 1);
+  assert.equal(early.success, false);
+  assert.match(early.error, /il y a moins de 20 s/);
+  assert.equal(server.calls('Manipulator.setState').length, 1);
+  await advance(2_000);
+  assert.deepEqual(await set(gladys, IDS.valve, 'valve', 1), { success: true });
+  assert.deepEqual(server.calls('Manipulator.setState').at(-1).body.params, { state: 'open' });
+  assert.equal(app.keeper.entries.size, 0, 'the opening asked last lets the shutoff go');
+  await advance(20 * MINUTE);
+  assert.equal(closesOf(server).length, 1, 'never fought');
+});
+
+test('valves: an old configuration holding allow_valve_close changes nothing', async (t) => {
+  const { gladys, server, app } = await setup(t, {
+    config: { ...CONFIG, allow_valve_close: false },
+  });
+  await createAll(gladys);
+  assert.equal('allowValveClose' in app.config, false);
+  assert.deepEqual(await set(gladys, IDS.valve, 'valve', 0), { success: true });
+  assert.equal(closesOf(server).length, 1);
+  assert.equal((await set(gladys, IDS.valve, 'valve', 1)).success, false);
+});
+
+test('valves: a live report after the send confirms; one without the valve never does', async (t) => {
+  const server = fakeYoLink();
+  server.stuck.add(IDS.valve);
+  const { gladys, mqtt, app } = await setup(t, { server });
+  await createAll(gladys);
+  // Already closed: the answer of the command says closed, it confirms nothing.
+  server.states[IDS.valve].state = 'closed';
+  await set(gladys, IDS.valve, 'valve', 0);
+  assert.equal(last(gladys, IDS.valve, 'valve'), 0);
+  mqtt.publish('US', report(IDS.valve, 'Manipulator.Report', { battery: 4 }));
+  await settle();
+  assert.equal(app.keeper.entries.size, 1, 'no valve in the report: kept');
+  mqtt.publish('US', report(IDS.valve, 'Manipulator.Report', { state: 'open', battery: 4 }));
+  await settle();
+  assert.equal(app.keeper.entries.size, 1, 'open: kept');
+  mqtt.publish('US', report(IDS.valve, 'Manipulator.setState', { state: 'closed' }));
+  await settle();
+  assert.equal(app.keeper.entries.size, 0, 'closed: done');
+});
+
+test('valves: a jammed valve, sent again 3 times, then every 15 min, given up after 24 h', async (t) => {
+  const server = fakeYoLink();
+  server.stuck.add(IDS.valve);
+  const { gladys, app, advance, data } = await setup(t, { server });
+  await createAll(gladys);
+  assert.deepEqual(await set(gladys, IDS.valve, 'valve', 0), { success: true });
+  const firstSent = app.keeper.entries.get(IDS.valve).firstSent;
+  for (let resend = 1; resend <= 3; resend += 1) {
+    await advance(60_000);
+    assert.equal(closesOf(server).length, 1 + resend, `resend ${resend}`);
+  }
+  await advance(60_000);
+  assert.equal(closesOf(server).length, 4, 'held');
+  assert.match(statusFr(gladys), /1 retenue : renvoyée toutes les 15 min/);
+  await advance(15 * MINUTE);
+  assert.equal(closesOf(server).length, 5, 'sent again after 15 min');
+  // No storm: one setState and at most one read of the valve a minute.
+  assert.ok(server.calls('Manipulator.fetchState').length <= 4 + 2 + 2);
+  // Right before the 24 h: still sent; at 24 h: given up, said in the status.
+  t.mock.timers.tick(firstSent + 24 * 60 * MINUTE - 15 * MINUTE - Date.now() - 1_000);
+  await settle();
+  await advance(15 * MINUTE);
+  const sent = closesOf(server).length;
+  assert.equal(app.keeper.entries.size, 1);
+  await advance(15 * MINUTE);
+  assert.equal(app.keeper.entries.size, 0);
+  assert.equal(closesOf(server).length, sent, 'not sent at the give-up');
+  assert.match(statusFr(gladys), /Coupure abandonnée après 24 h .*: Main valve/);
+  await app.keeper.saving;
+  assert.deepEqual(keptFile(data), []);
+});
+
+test('valves: a LeakStop asleep (class A): told, kept and sent again', async (t) => {
   const server = fakeYoLink();
   const leakStop = server.us.find((d) => d.deviceId === IDS.leakStop);
   leakStop.modelName = 'YS5009-UC';
-  const { gladys } = await setup(t, { server, config: { ...CONFIG, allow_valve_close: true } });
+  const { gladys, app, advance } = await setup(t, { server });
   await createAll(gladys);
   server.unreachable.add(IDS.leakStop);
   const ack = await set(gladys, IDS.leakStop, 'valve', 0);
   assert.equal(ack.success, false);
   assert.match(ack.error, /classe A/);
+  assert.match(ack.error, /gardée et renvoyée/);
+  assert.equal(app.keeper.entries.size, 1);
+  server.unreachable.delete(IDS.leakStop);
+  await advance(60_000);
+  assert.equal(closesOf(server, 'WaterMeterController').length, 2, 'sent again');
+  await advance(60_000);
+  assert.equal(app.keeper.entries.size, 0, 'then seen closed');
+});
+
+test('valves: refused credentials keep the shutoff; it leaves once they work', async (t) => {
+  const { gladys, server, app, advance } = await setup(t);
+  await createAll(gladys);
+  app.refused = true;
+  const ack = await set(gladys, IDS.valve, 'valve', 0);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /la coupure est gardée et part dès/);
+  assert.equal(closesOf(server).length, 0);
+  await advance(2 * MINUTE);
+  assert.equal(closesOf(server).length, 0, 'nothing while refused');
+  await gladys.fake.action(ACTIONS.TEST_CONNECTION, {});
+  await settle();
+  assert.equal(closesOf(server).length, 1, 'sent once the credentials work');
+});
+
+test('valves: limits reached during a shutoff: it waits for the pause', async (t) => {
+  const { gladys, server, app, advance } = await setup(t);
+  await createAll(gladys);
+  server.queue.push({
+    match: (r) => r.body?.method === 'Manipulator.setState',
+    body: { code: '010301', desc: 'Access denied due to limits reached, Please retry later' },
+  });
+  const ack = await set(gladys, IDS.valve, 'valve', 0);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /gardée et renvoyée/);
+  assert.equal(app.pausedUntil, Date.now() + 15 * MINUTE);
+  const requests = server.requests.length;
+  await advance(14 * MINUTE);
+  assert.equal(server.requests.length, requests, 'nothing during the pause');
+  await advance(2 * MINUTE);
+  assert.equal(closesOf(server).length, 2, 'sent again after the pause');
+});
+
+test('valves: a shutoff kept in /data is sent again after a restart', async (t) => {
+  const server = fakeYoLink();
+  server.stuck.add(IDS.valve);
+  const data = dataDir(t);
+  const first = await setup(t, { server, data });
+  await createAll(first.gladys);
+  await set(first.gladys, IDS.valve, 'valve', 0);
+  first.app.stop();
+  await first.app.keeper.saving;
+  assert.equal(keptFile(data).length, 1);
+  // A new container on the same /data.
+  const gladys = createFakeGladys({ config: CONFIG });
+  const app = new YoLinkApp({
+    gladys,
+    logger: createLogger({ level: 'silent' }),
+    transport: server.transport,
+    connect: (endpoint, options) => fakeMqtt(server).connect(endpoint, options),
+    now: () => Date.now(),
+    monotonic: () => Date.now(),
+    stateSpacing: 0,
+    dataDir: data,
+  });
+  apps.add(app);
+  registerHandlers(gladys, app);
+  await gladys.connect();
+  await settle();
+  assert.equal(closesOf(server).length, 2, 'sent once the devices are read');
+  assert.match(gladys.fake.connectionStatus.message.fr, /1 coupure gardée/);
+});
+
+test('valves: /data unreadable is read again at each tick, never taken for empty', async (t) => {
+  const data = dataDir(t);
+  mkdirSync(join(data, 'yolink-shutoffs.json'));
+  const { server, app, advance, lines } = await setup(t, { data });
+  assert.equal(app.shutoffsLoaded, false);
+  assert.ok(lines.some((l) => /Reading the shutoffs kept/.test(l)));
+  rmSync(join(data, 'yolink-shutoffs.json'), { recursive: true });
+  writeFileSync(
+    join(data, 'yolink-shutoffs.json'),
+    JSON.stringify({ version: 1, shutoffs: [{ id: IDS.valve, name: 'Kept', at: 1 }] }),
+  );
+  await advance(MINUTE);
+  assert.equal(app.shutoffsLoaded, true);
+  assert.equal(closesOf(server).length, 1);
+});
+
+test('valves: a shutoff clicked before the account is read leaves once it is', async (t) => {
+  const server = fakeYoLink();
+  server.down = true;
+  const { gladys, app, advance } = await setup(t, { server });
+  const device = { external_id: dev(IDS.valve), name: 'Main valve' };
+  const ack = await gladys.fake.setValue(device, { external_id: `${dev(IDS.valve)}:valve` }, 0);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /gardée et renvoyée/);
+  assert.equal(app.keeper.entries.get(IDS.valve).name, 'Main valve');
+  server.down = false;
+  await advance(2 * MINUTE);
+  assert.equal(closesOf(server).length, 1);
+});
+
+test('valves: a read showing the valve closed but the device offline confirms nothing', async (t) => {
+  const server = fakeYoLink();
+  server.stuck.add(IDS.valve);
+  const { gladys, app, advance } = await setup(t, { server });
+  await createAll(gladys);
+  await set(gladys, IDS.valve, 'valve', 0);
+  server.queue.push({
+    match: (r) => r.body?.method === 'Manipulator.fetchState',
+    body: { code: '000000', data: { online: false, state: { state: 'closed' } } },
+  });
+  await advance(60_000);
+  assert.equal(app.keeper.entries.size, 1, 'kept');
+  assert.equal(closesOf(server).length, 2, 'sent again');
+});
+
+test('valves: let go when deleted in Gladys or gone from the account', async (t) => {
+  const server = fakeYoLink();
+  server.stuck.add(IDS.valve);
+  const { gladys, app, advance } = await setup(t, { server });
+  await createAll(gladys);
+  await set(gladys, IDS.valve, 'valve', 0);
+  await gladys.fake.deviceDeleted(deviceOf(gladys, dev(IDS.valve)));
+  assert.equal(app.keeper.entries.size, 0);
+  await gladys.fake.deviceCreated(deviceOf(gladys, dev(IDS.valve)));
+  await set(gladys, IDS.valve, 'valve', 0);
+  server.us = server.us.filter((d) => d.deviceId !== IDS.valve);
+  app.nextRefreshAt = 0;
+  await advance(MINUTE);
+  assert.equal(app.keeper.entries.size, 0);
+});
+
+test('valves: an opening in flight when a shutoff is clicked never lets it go', async (t) => {
+  const server = fakeYoLink();
+  const { gladys, app, advance } = await setup(t, {
+    server,
+    config: { ...CONFIG, allow_valve_open: true },
+  });
+  await createAll(gladys);
+  server.states[IDS.valve].state = 'closed';
+  server.delays.push({
+    match: (r) => r.body?.method === 'Manipulator.setState' && r.body.params.state === 'open',
+    ms: 2_000,
+  });
+  const opening = set(gladys, IDS.valve, 'valve', 1);
+  await settle();
+  server.stuck.add(IDS.valve);
+  assert.deepEqual(await set(gladys, IDS.valve, 'valve', 0), { success: true });
+  await advance(3_000);
+  await opening;
+  assert.equal(app.keeper.entries.size, 1, 'the later shutoff is still kept');
 });
 
 test('a FlowSmart meter (YS5007) has no valve', async (t) => {

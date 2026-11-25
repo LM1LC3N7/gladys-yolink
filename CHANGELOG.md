@@ -10,6 +10,33 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Closing a water valve (shutting the water off) is never refused any more
+  and needs no option**: it protects (Louis's rule of 2026-11-25). The
+  shutoff leaves at once, without reading the valve first, and is kept, also
+  across a restart, until YoLink shows the valve closed by a reading made
+  after it was sent (a state read or a live event): read again 60 s after each
+  send and sent again if needed (3 times, then every 15 minutes), sent again
+  when YoLink answers after an outage, waiting for the pause YoLink asks for.
+  A LeakStop asleep (class A) is tried again the same way. It is given up 24
+  hours after it first left without YoLink showing the valve closed, as the
+  integration status says. Once seen closed, reopening the water in the
+  YoLink app is never fought.
+- Opening a valve stays off by default; when allowed, it is refused within
+  20 seconds of a shutoff of the same valve, and an opening sent lets an
+  older shutoff go.
+- Warning: the valve is a Gladys switch; a "turn everything off" command or
+  a scene acting on every switch can now shut the water off without any
+  option. Check your scenes and voice assistants.
+- Integration SDK 0.16.1 (no change for the devices).
+
+### Removed
+
+- The option "Allow closing the water valves" (`allow_valve_close`): closing
+  is always allowed. A configuration that still holds it keeps working, the
+  value is ignored.
+
 ## [0.1.2] - 2026-10-23
 
 ## [0.1.1] - 2026-10-17

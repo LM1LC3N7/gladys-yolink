@@ -34,6 +34,8 @@ export function fakeYoLink({ lifetime = 7200 } = {}) {
     states: initialStates(),
     /** deviceIds answering "Cannot connect to the device" */
     unreachable: new Set(),
+    /** deviceIds accepting setState without moving */
+    stuck: new Set(),
     /** types answering "method is not supported" to fetchState */
     noFetch: new Set(['Siren']),
     /** { url, endpoint, method, body, token, at } */
@@ -159,6 +161,10 @@ export function fakeYoLink({ lifetime = 7200 } = {}) {
     }
     if (action === 'setState') {
       const p = bddp.params ?? {};
+      if (server.stuck.has(device.deviceId)) {
+        // Accepted, but the device does not move (a jammed valve).
+        return answer(200, budp(bddp.method, { state: state.state }));
+      }
       if (type === 'MultiOutlet') {
         state.state = state.state.map((s, i) =>
           p.chs & (1 << i) ? (p.state === 'open' ? 'open' : 'closed') : s,

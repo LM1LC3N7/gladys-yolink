@@ -13,8 +13,10 @@ export const DEFAULTS = {
   allow_unlock: false,
   allow_garage_open: false,
   allow_valve_open: false,
-  // Closing a valve is off too: Louis's decision, 2026-10-17.
-  allow_valve_close: false,
+  // Closing a valve shuts the water off: never refused, behind no option
+  // (Louis's decision, 2026-11-25, replaces the one of 2026-10-17). An old
+  // configuration that still holds `allow_valve_close` is read as usual,
+  // that key is ignored.
   // Stopping a siren stays possible by default: Louis's decision, 2026-10-17.
   allow_siren_stop: true,
   language: 'fr',
@@ -46,7 +48,6 @@ export function normalizeConfig(raw = {}) {
     allowUnlock: flag(raw?.allow_unlock, DEFAULTS.allow_unlock),
     allowGarageOpen: flag(raw?.allow_garage_open, DEFAULTS.allow_garage_open),
     allowValveOpen: flag(raw?.allow_valve_open, DEFAULTS.allow_valve_open),
-    allowValveClose: flag(raw?.allow_valve_close, DEFAULTS.allow_valve_close),
     allowSirenStop: flag(raw?.allow_siren_stop, DEFAULTS.allow_siren_stop),
     language: LANGUAGES.includes(language) ? language : DEFAULTS.language,
   };

@@ -5,6 +5,12 @@
 // commands (plugs, switches, valves, locks, sirens, garage doors) with the
 // risky ones off by default, and the transport badges. index.js only wires
 // the SDK handlers to it.
+//
+// Valves (Louis's rules): closing shuts the water off, it protects, it is
+// never refused and behind no option (decision of 2026-11-25): kept and sent
+// again until YoLink shows the valve closed, 24 h at most (src/shutoff.js).
+// Opening stays behind `allow_valve_open`, refused within 20 s of a shutoff
+// of the same valve; an opening sent after a shutoff lets it go.
 // -----------------------------------------------------------------------------
 
 import { DEVICE_TRANSPORTS, createLogger } from '@gladysassistant/integration-sdk';
@@ -28,10 +34,19 @@ import {
   statesOf,
 } from './devices.js';
 import { T, age, word } from './i18n.js';
-import { endpointOf, flatten, latestRecord, openState, readInventory } from './inventory.js';
+import {
+  endpointOf,
+  flatten,
+  latestRecord,
+  openState,
+  readInventory,
+  valveState,
+} from './inventory.js';
 import { LiveEvents } from './live.js';
 import { StatePublisher } from './publisher.js';
-import { errorReason } from './yolink.js';
+import { ShutoffKeeper } from './shutoff.js';
+import { loadShutoffs, saveShutoffs } from './store.js';
+import { YoLinkError, errorReason } from './yolink.js';
 
 /** Errors after which only a change of the configuration (or the test button) helps. */
 const REFUSED = new Set(['refused', 'no_credentials']);
@@ -56,14 +71,34 @@ export class YoLinkApp {
     transport,
     connect,
     now = Date.now,
+    monotonic = () => performance.now(),
     timers = globalThis,
     randomId,
     stateSpacing = TIMINGS.stateSpacing,
+    dataDir = '/data',
   }) {
     this.gladys = gladys;
     this.logger = logger;
     this.now = now;
     this.timers = timers;
+    this.dataDir = dataDir;
+    /** The last status asked, before the shutoffs are added to it. */
+    this.rawStatus = undefined;
+    /** false while /data could not be read: the kept shutoffs are read again at each tick. */
+    this.shutoffsLoaded = false;
+    this.keeper = new ShutoffKeeper({
+      send: (entry) => this.sendShutoff(entry),
+      read: (entry) => this.readShutoff(entry),
+      ready: () => this.shutoffReady(),
+      save: (list) => saveShutoffs(this.dataDir, list),
+      onChange: () => this.statusAgain(),
+      onRateLimited: () => this.rateLimited(),
+      logger,
+      timers,
+      monotonic,
+      wallNow: now,
+      timings: TIMINGS.shutoff,
+    });
     this.stateSpacing = stateSpacing;
     this.client = new YoLinkClient({ transport, now });
     this.publisher = new StatePublisher({ gladys, logger, now, timers });
@@ -118,6 +153,8 @@ export class YoLinkApp {
     await this.running;
     this.config = normalizeConfig(raw);
     this.reset();
+    // Read before anything: sent once the devices are known (first refresh).
+    await this.loadShutoffs();
     this.client.configure({ uaid: this.config.uaid, secretKey: this.config.secretKey });
     this.publisher.start();
     if (!this.client.hasCredentials) {
@@ -133,6 +170,7 @@ export class YoLinkApp {
 
   stop() {
     this.generation += 1;
+    this.keeper.stop();
     if (this.timer) {
       this.timers.clearInterval(this.timer);
       this.timer = undefined;
@@ -173,11 +211,9 @@ export class YoLinkApp {
     await this.configUpdated(raw);
     this.published = undefined;
     this.transports.clear();
-    const status = this.lastStatus;
     this.lastStatus = undefined;
-    if (status) {
-      const [connected, message] = JSON.parse(status);
-      await this.setStatus(connected, message ?? undefined);
+    if (this.rawStatus) {
+      await this.setStatus(...this.rawStatus);
     }
     await this.publishDevices();
     await this.publishAllTransports();
@@ -217,7 +253,10 @@ export class YoLinkApp {
     return this.config.liveEvents ? this.live.connected : 'off';
   }
 
-  async setStatus(connected, message) {
+  /** The status, with the shutoffs kept or given up said after it. */
+  async setStatus(connected, rawMessage) {
+    this.rawStatus = [connected, rawMessage];
+    const message = this.withShutoffs(rawMessage);
     const key = JSON.stringify([connected, message ?? null]);
     if (key === this.lastStatus) {
       return;
@@ -228,10 +267,136 @@ export class YoLinkApp {
       .catch((err) => this.logger.warn(`setConnectionStatus failed: ${err.message}`));
   }
 
+  withShutoffs(message) {
+    const { kept, held, givenUp } = this.keeper.summary();
+    if (kept === 0 && givenUp.length === 0) {
+      return message;
+    }
+    const base = message ?? { en: '', fr: '' };
+    const kept_ = kept > 0 ? T.shutoffsKept(kept, held) : { en: '', fr: '' };
+    const lost = givenUp.length > 0 ? T.shutoffsGivenUp(givenUp.join(', ')) : { en: '', fr: '' };
+    return {
+      en: `${base.en}${kept_.en}${lost.en}`.trim(),
+      fr: `${base.fr}${kept_.fr}${lost.fr}`.trim(),
+    };
+  }
+
+  /** A shutoff kept, held, done or given up: the status says it again. */
+  statusAgain() {
+    if (this.rawStatus) {
+      this.setStatus(...this.rawStatus).catch(() => {});
+    }
+  }
+
+  // --- Shutoffs --------------------------------------------------------------
+
+  /** The shutoffs kept in /data before a restart, added to the ones in memory. */
+  async loadShutoffs() {
+    if (this.shutoffsLoaded) {
+      return;
+    }
+    const { ok, list, error } = await loadShutoffs(this.dataDir);
+    if (error) {
+      this.logger.warn(`Reading the shutoffs kept in ${this.dataDir} failed: ${error.message}`);
+    }
+    this.shutoffsLoaded = ok;
+    this.keeper.restore(list);
+    if (list.length > 0) {
+      this.statusAgain();
+    }
+  }
+
+  /** Can a shutoff leave now: never with refused credentials, after the pause YoLink asked. */
+  shutoffReady() {
+    if (!this.client.hasCredentials || this.refused) {
+      return { blocked: true };
+    }
+    // Bounded: a wall clock set back never holds a shutoff longer than the pause.
+    const wait = Math.min(this.pausedUntil - this.now(), TIMINGS.rateLimitPause);
+    return wait > 0 ? { wait } : {};
+  }
+
+  /** The device of a shutoff, once the account was read (its token is in the device list). */
+  shutoffDevice(entry) {
+    const device = this.devices.get(entry.id);
+    if (device?.kind === 'valve') {
+      return device;
+    }
+    if (this.readAt !== undefined && !device) {
+      throw new YoLinkError('not_found', 'not in the YoLink account');
+    }
+    throw new YoLinkError('not_ready', device ? 'not a valve' : 'the account is not read yet');
+  }
+
+  /** One shutoff to the valve. Its answer is shown, never taken for a confirmation. */
+  async sendShutoff(entry) {
+    const device = this.shutoffDevice(entry);
+    const params = device.type === 'Manipulator' ? { state: 'close' } : { valve: 'close' };
+    const answer = await this.client.invoke(device, 'setState', params);
+    const fromAnswer = flatten(answer);
+    if ('state' in fromAnswer) {
+      this.readings.set(device.id, { ...this.readings.get(device.id), ...fromAnswer });
+      this.queue(device);
+      this.flush().catch(() => {});
+    }
+  }
+
+  /** The check of a shutoff: its valve read again (a read started now confirms it). */
+  async readShutoff(entry) {
+    const device = this.shutoffDevice(entry);
+    await this.readState(device);
+    this.queue(device);
+    await this.flush();
+  }
+
+  /** YoLink asked to slow down during a command: the refresh and the shutoffs wait too. */
+  rateLimited() {
+    this.pausedUntil = Math.max(this.pausedUntil, this.now() + TIMINGS.rateLimitPause);
+    this.nextRefreshAt = Math.max(this.nextRefreshAt, this.pausedUntil);
+  }
+
+  /**
+   * The shutoff of a valve: behind no option, nothing read before it leaves.
+   * Gladys gets its answer within 3.5 s: sent, or kept and sent again.
+   */
+  async closeValve(id, name) {
+    const known = this.devices.get(id);
+    if (known && known.kind !== 'valve') {
+      throw new Error(`valve is not a feature of this ${known.type}`);
+    }
+    const sending = this.keeper.click(id, known ? deviceName(known, this.config.language) : name);
+    let timer;
+    const late = new Promise((resolve) => {
+      timer = this.timers.setTimeout(() => resolve('late'), TIMINGS.shutoffAnswer);
+    });
+    const outcome = await Promise.race([sending, late]);
+    this.timers.clearTimeout(timer);
+    if (outcome === 'sent') {
+      return;
+    }
+    if (
+      known &&
+      LEAK_STOP_MODELS.includes(known.model) &&
+      this.keeper.entries.get(id)?.lastError?.kind === 'device'
+    ) {
+      // Asleep (class A): it is kept, the message says why it did not answer.
+      throw new Error(
+        `${word(T.leakStopAsleep, this.config.language)} ${word(T.denied.closeKept, this.config.language)}`,
+      );
+    }
+    throw this.denied(outcome === 'blocked' ? 'closeKeptRefused' : 'closeKept');
+  }
+
   // --- Full refresh ----------------------------------------------------------
 
   /** Every minute: a refresh when one is due. */
   async tick() {
+    if (!this.shutoffsLoaded) {
+      await this.loadShutoffs();
+      if (this.readAt !== undefined) {
+        this.keeper.fireAll();
+      }
+    }
     if (this.now() >= this.nextRefreshAt) {
       await this.refresh();
     }
@@ -277,8 +442,14 @@ export class YoLinkApp {
       if (generation !== this.generation) {
         return;
       }
+      const first = this.readAt === undefined;
       this.readAt = this.now();
       this.nextRefreshAt = this.readAt + this.config.refreshInterval * 60_000;
+      if (first || this.failures > 0 || this.keeper.blocked) {
+        // The devices are known (start), YoLink answers again after a failure,
+        // or accepts the credentials again: the shutoffs kept leave again.
+        this.keeper.fireAll();
+      }
       this.failures = 0;
       this.offline = false;
       await this.publishDevices();
@@ -311,14 +482,29 @@ export class YoLinkApp {
         this.online.delete(id);
       }
     }
+    for (const id of [...this.keeper.entries.keys()]) {
+      if (this.devices.get(id)?.kind !== 'valve') {
+        this.keeper.letGo(id, 'given up: no such valve in the YoLink account');
+      }
+    }
   }
 
   /** The state of one device; a device that does not answer is marked offline. */
   async readState(device) {
+    // Taken before the request: only a read started after a shutoff left confirms it.
+    const ticket = this.keeper.ticket();
     try {
       const data = await this.client.state(device);
-      this.readings.set(device.id, flatten(data));
+      const reading = flatten(data);
+      this.readings.set(device.id, reading);
       this.online.set(device.id, data.online !== false);
+      if (device.kind === 'valve') {
+        this.keeper.observe(
+          device.id,
+          data.online !== false && valveState(reading) === false,
+          ticket,
+        );
+      }
     } catch (err) {
       if (!DEVICE_ERRORS.has(err.kind)) {
         throw err;
@@ -375,6 +561,10 @@ export class YoLinkApp {
     const values = event === MQTT_RECORD_EVENT ? latestRecord(data) : flatten(data);
     if (!values) {
       return;
+    }
+    if (device.kind === 'valve') {
+      // This report only (never what an older reading left): the valve closed now.
+      this.keeper.observe(id, valveState(values) === false, this.keeper.ticket(), { live: true });
     }
     this.readings.set(id, { ...this.readings.get(id), ...values });
     const wasOffline = this.online.get(id) === false;
@@ -543,6 +733,10 @@ export class YoLinkApp {
 
   async deviceDeleted(device) {
     this.transports.delete(device?.external_id);
+    const id = /:yolink:([^:]+)$/.exec(String(device?.external_id ?? ''))?.[1];
+    if (id) {
+      this.keeper.letGo(id, 'given up: the device was deleted in Gladys');
+    }
     if (device?.external_id) {
       this.publisher.forget(device.external_id);
     }
@@ -568,7 +762,7 @@ export class YoLinkApp {
     return new Error(word(T.denied[key], this.config.language));
   }
 
-  async setValue(_gladysDevice, feature, value) {
+  async setValue(gladysDevice, feature, value) {
     const target = parseFeatureId(feature?.external_id);
     const role = target?.role;
     if (!target || !Object.hasOwn(KIND_OF_ROLE, role)) {
@@ -581,12 +775,20 @@ export class YoLinkApp {
     if (!accepted.includes(v)) {
       throw new Error(`Unexpected value "${value}" (${accepted.join(', ')})`);
     }
+    if (role === 'valve' && v === 0) {
+      // The shutoff: never refused, even before the account is read or while it is refused.
+      const name = String(gladysDevice?.name ?? '').trim() || `YoLink ${target.id}`;
+      return this.closeValve(target.id, name);
+    }
     if (this.refused) {
       throw new Error(word(T.refused, this.config.language));
     }
     const device = this.devices.get(target.id);
     if (!device) {
       throw new Error('Unknown YoLink device: wait for the first reading of the account');
+    }
+    if (role === 'valve' && device.kind === 'valve') {
+      return this.openValve(device);
     }
     if (role === 'garage' && device.kind === 'garage') {
       if (v === GLADYS.COVER_STOP) {
@@ -613,6 +815,20 @@ export class YoLinkApp {
       });
     }
     return this.execute(device, role, this.commandOf(device, role, v === 1, target.index));
+  }
+
+  /** An opening: behind its option, never within 20 s of a shutoff; it lets an older shutoff go. */
+  async openValve(device) {
+    const command = this.commandOf(device, 'valve', true);
+    if (this.keeper.justClicked(device.id)) {
+      throw this.denied('closeJustClicked');
+    }
+    const clicks = this.keeper.clickCount(device.id);
+    await this.execute(device, 'valve', command);
+    // Sent after the last shutoff of this valve: that shutoff is not fought for.
+    if (this.keeper.clickCount(device.id) === clicks) {
+      this.keeper.letGo(device.id, 'let go by an opening sent after it');
+    }
   }
 
   /** Runs `task` after the previous task of the same key (a promise chain per key). */
@@ -760,8 +976,7 @@ export class YoLinkApp {
    * lock, a valve or a garage door wait for the device to report).
    */
   commandOf(device, role, on, index, door) {
-    const { allowUnlock, allowGarageOpen, allowValveOpen, allowValveClose, allowSirenStop } =
-      this.config;
+    const { allowUnlock, allowGarageOpen, allowValveOpen, allowSirenStop } = this.config;
     if (device.kind !== KIND_OF_ROLE[role] || (role === 'socket' && !(index >= 0 && index < 8))) {
       throw new Error(`${role} is not a feature of this ${device.type}`);
     }
@@ -787,13 +1002,11 @@ export class YoLinkApp {
         };
       }
       case 'valve': {
-        if (on && !allowValveOpen) {
+        // Closing never comes here: it is the shutoff of closeValve().
+        if (!on || !allowValveOpen) {
           throw this.denied('valve');
         }
-        if (!on && !allowValveClose) {
-          throw this.denied('valveClose');
-        }
-        const state = on ? 'open' : 'close';
+        const state = 'open';
         return {
           method: 'setState',
           params: device.type === 'Manipulator' ? { state } : { valve: state },

@@ -53,13 +53,43 @@ configuration :
 | Autoriser le déverrouillage des serrures   | non        | peut verrouiller, jamais déverrouiller            |
 | Autoriser l'ouverture des portes de garage | non        | peut fermer une porte que son capteur dit ouverte |
 | Autoriser l'ouverture des vannes d'eau     | non        | n'ouvre jamais une vanne                          |
-| Autoriser la fermeture des vannes d'eau    | non        | ne ferme jamais une vanne                         |
 | Autoriser l'arrêt des sirènes              | oui        | peut déclencher une sirène, jamais l'arrêter      |
 
-Une commande refusée affiche un message qui renvoie à l'option. Pour couper
-l'eau depuis une scène en cas de fuite, activez « Autoriser la fermeture des
-vannes d'eau ». Sirène dont l'arrêt est désactivé : elle s'arrête d'elle-même
-au bout de sa durée d'alarme réglée dans l'application YoLink.
+Une commande refusée affiche un message qui renvoie à l'option. Sirène dont
+l'arrêt est désactivé : elle s'arrête d'elle-même au bout de sa durée d'alarme
+réglée dans l'application YoLink.
+
+**Fermer une vanne d'eau coupe l'eau : c'est une protection, elle n'est jamais
+refusée et ne demande aucune option** (une scène sur fuite fonctionne dès
+l'installation). Une coupure (l'interrupteur de vanne mis à 0) :
+
+- part tout de suite, sans relire la vanne avant ;
+- est **gardée jusqu'à ce que YoLink montre la vanne fermée** par une lecture
+  faite après son envoi (une lecture d'état, ou un événement en direct de la
+  vanne ; appareil en ligne). D'ici là elle est renvoyée : la vanne est relue
+  60 secondes après chaque envoi et la coupure renvoyée si elle n'est pas
+  fermée, 3 fois, puis toutes les 15 minutes ; aussi après un redémarrage de
+  l'intégration (elle est gardée dans ses données) et quand YoLink répond de
+  nouveau après une panne. Elle attend la pause que YoLink demande (limites
+  atteintes) et des identifiants qui fonctionnent. Un LeakStop en mode
+  économie d'énergie (classe A) qui ne répond pas est réessayé de la même
+  façon ;
+- est **abandonnée 24 heures après son premier envoi** si YoLink ne montre
+  toujours pas la vanne fermée, ce que dit le statut de l'intégration ; aussi
+  quand l'appareil est supprimé dans Gladys ou quitte le compte YoLink ;
+- une fois vue fermée, c'est terminé : rouvrir l'eau plus tard dans
+  l'application YoLink n'est jamais contré.
+
+Si la coupure n'a pas pu atteindre la vanne en 3,5 secondes, Gladys affiche
+un message disant qu'elle est gardée et renvoyée. Une ouverture (si elle est
+autorisée) est refusée dans les 20 secondes qui suivent une coupure de la
+même vanne, et met fin à une coupure demandée avant elle (l'ouverture est ce
+que vous avez demandé en dernier).
+
+**La vanne est un interrupteur Gladys :** un assistant vocal, une commande
+« tout éteindre » ou une scène qui agit sur tous les interrupteurs peut couper
+l'eau (toujours permis), et l'ouvrir une fois l'option activée. Vérifiez vos
+scènes et vos assistants.
 
 La porte de garage YoLink apparaît dans Gladys comme une **commande de volet**
 (ouvrir, fermer), jamais comme un interrupteur : une scène qui allume ou
@@ -123,14 +153,14 @@ qu'une commande « basculer » :
 
 ## Options
 
-| Option                                       | Défaut   | Rôle                                                 |
-| -------------------------------------------- | -------- | ---------------------------------------------------- |
-| UAID, clé secrète                            | —        | l'identifiant d'accès créé dans l'application YoLink |
-| Autoriser le déverrouillage, garage, vannes  | non      | voir « Sécurité »                                    |
-| Autoriser l'arrêt des sirènes                | oui      | voir « Sécurité »                                    |
-| Événements en direct (MQTT non chiffré)      | oui      | voir « Confidentialité »                             |
-| Intervalle de rafraîchissement complet (min) | 30       | fréquence de relecture complète                      |
-| Langue des noms des fonctionnalités          | Français | noms des fonctionnalités des appareils ajoutés       |
+| Option                                                    | Défaut   | Rôle                                                 |
+| --------------------------------------------------------- | -------- | ---------------------------------------------------- |
+| UAID, clé secrète                                         | —        | l'identifiant d'accès créé dans l'application YoLink |
+| Autoriser le déverrouillage, garage, ouverture des vannes | non      | voir « Sécurité »                                    |
+| Autoriser l'arrêt des sirènes                             | oui      | voir « Sécurité »                                    |
+| Événements en direct (MQTT non chiffré)                   | oui      | voir « Confidentialité »                             |
+| Intervalle de rafraîchissement complet (min)              | 30       | fréquence de relecture complète                      |
+| Langue des noms des fonctionnalités                       | Français | noms des fonctionnalités des appareils ajoutés       |
 
 ## Dépannage
 

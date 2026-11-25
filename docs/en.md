@@ -49,13 +49,41 @@ These commands are refused until you allow them in the configuration:
 | Allow unlocking the locks      | no      | can lock, never unlock                   |
 | Allow opening the garage doors | no      | can close a door its sensor reports open |
 | Allow opening the water valves | no      | never opens a valve                      |
-| Allow closing the water valves | no      | never closes a valve                     |
 | Allow stopping the sirens      | yes     | can start a siren, never stop it         |
 
-A refused command shows a message pointing to the option. To shut the water
-off from a scene on a leak, turn on "Allow closing the water valves". A siren
-whose stopping is off stops by itself after the alarm duration set in the
-YoLink app.
+A refused command shows a message pointing to the option. A siren whose
+stopping is off stops by itself after the alarm duration set in the YoLink
+app.
+
+**Closing a water valve shuts the water off: it protects, so it is never
+refused and needs no option** (a scene on a leak works as installed). A
+shutoff (the valve switch set to 0):
+
+- leaves at once, without reading the valve first;
+- is **kept until YoLink shows the valve closed** by a reading made after it
+  was sent (a state read, or a live event of the valve; device online). Until
+  then it is sent again: the valve is read again 60 seconds after each send
+  and the shutoff sent again if it is not closed, 3 times, then every 15
+  minutes; also after a restart of the integration (it is kept in its data)
+  and when YoLink answers again after an outage. It waits for the pause
+  YoLink asks for (limits reached) and for working credentials. A LeakStop in
+  power-saving (class A) mode that does not answer is tried again the same
+  way;
+- is **given up 24 hours after it first left** without YoLink showing the
+  valve closed, said in the integration status; also when the device is
+  deleted in Gladys or leaves the YoLink account;
+- once seen closed, it is done: reopening the water in the YoLink app later
+  is never fought.
+
+If the shutoff could not reach the valve within 3.5 seconds, Gladys shows a
+message saying that it is kept and sent again. An opening (when allowed) is
+refused within 20 seconds of a shutoff of the same valve, and lets go of a
+shutoff asked before it (the opening is what you asked last).
+
+**The valve is a Gladys switch:** a voice assistant, a "turn everything off"
+command or a scene acting on every switch can shut the water off (always
+allowed), and open it once that option is on. Check your scenes and
+assistants.
 
 A YoLink garage door appears in Gladys as a **cover command** (like a
 shutter: open, close), never as a switch, so a scene that turns everything on
@@ -112,14 +140,14 @@ or off never reaches it. The YoLink controller itself only knows "toggle":
 
 ## Options
 
-| Option                          | Default | Role                                           |
-| ------------------------------- | ------- | ---------------------------------------------- |
-| UAID, secret key                | —       | the access credential made in the YoLink app   |
-| Allow unlocking, garage, valves | no      | see "Safety"                                   |
-| Allow stopping the sirens       | yes     | see "Safety"                                   |
-| Live events (unencrypted MQTT)  | yes     | see "Privacy"                                  |
-| Full refresh interval (min)     | 30      | how often everything is read again             |
-| Language of the feature names   | French  | feature names of the devices added from now on |
+| Option                                  | Default | Role                                           |
+| --------------------------------------- | ------- | ---------------------------------------------- |
+| UAID, secret key                        | —       | the access credential made in the YoLink app   |
+| Allow unlocking, garage, opening valves | no      | see "Safety"                                   |
+| Allow stopping the sirens               | yes     | see "Safety"                                   |
+| Live events (unencrypted MQTT)          | yes     | see "Privacy"                                  |
+| Full refresh interval (min)             | 30      | how often everything is read again             |
+| Language of the feature names           | French  | feature names of the devices added from now on |
 
 ## Troubleshooting
 

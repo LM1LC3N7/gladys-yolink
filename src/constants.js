@@ -175,4 +175,23 @@ export const TIMINGS = {
   garageDeadline: 3_500,
   /** The "Test the connection" button and the Discovery scan read YoLink at most this often. */
   testCooldown: 30_000,
+  /** Gladys waits 5 s for the answer of a command: a shutoff is answered by then (it still leaves). */
+  shutoffAnswer: 3_500,
+  /**
+   * A shutoff kept (src/shutoff.js): the valve read again this long after
+   * each send and the shutoff sent again when it is not seen closed,
+   * `resends` times, then every `heldEvery`; given up `expiry` after it
+   * first left. At most one request of a kept shutoff in flight per valve:
+   * two requests a minute at most, far under YoLink's limits.
+   */
+  shutoff: {
+    check: 60_000,
+    resends: 3,
+    heldEvery: 15 * 60_000,
+    expiry: 24 * 60 * 60_000,
+    /** A restart or a recovery of YoLink sends it again, unless it left less than this ago. */
+    minGap: 60_000,
+    /** An opening is refused this long after a shutoff of the same valve was clicked. */
+    openBlock: 20_000,
+  },
 };

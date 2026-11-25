@@ -11,7 +11,6 @@ test('defaults: no credentials, every risky command off', () => {
     allowUnlock: false,
     allowGarageOpen: false,
     allowValveOpen: false,
-    allowValveClose: false,
     allowSirenStop: true,
     language: 'fr',
   });
@@ -21,7 +20,8 @@ test('an unchecked box is false, an absent one is its default', () => {
   const config = normalizeConfig({ live_events: false, allow_siren_stop: 'false' });
   assert.equal(config.liveEvents, false);
   assert.equal(config.allowSirenStop, false);
-  assert.equal(normalizeConfig({ allow_valve_close: true }).allowValveClose, true);
+  // Closing a valve is behind no option (2026-11-25): an old key is ignored.
+  assert.equal('allowValveClose' in normalizeConfig({ allow_valve_close: false }), false);
 });
 
 test('values are trimmed, bounded and typed', () => {
