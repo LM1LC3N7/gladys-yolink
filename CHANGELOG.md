@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-25
+
 ### Changed
 
 - **Closing a water valve (shutting the water off) is never refused any more
@@ -98,6 +100,7 @@ the notes of the version's GitHub Release.
 - `LICENSE` (Apache-2.0) and `THIRD_PARTY_NOTICES.md` (yolink-api, MIT),
   copied into the image.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-yolink/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-yolink/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/LM1LC3N7/gladys-yolink/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/LM1LC3N7/gladys-yolink/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LM1LC3N7/gladys-yolink/releases/tag/v0.1.1
