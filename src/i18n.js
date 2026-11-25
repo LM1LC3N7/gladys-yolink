@@ -37,6 +37,9 @@ export const FEATURE_NAMES = {
   usb: { en: 'USB ports', fr: 'Ports USB' },
   power: { en: 'Power draw', fr: 'Puissance' },
   valve: { en: 'Valve open', fr: 'Vanne ouverte' },
+  valve_open: { en: 'Valve open', fr: 'Vanne ouverte' },
+  water_close: { en: 'Shut the water off', fr: "Couper l'eau" },
+  water_open: { en: 'Turn the water on', fr: "Ouvrir l'eau" },
   lock: { en: 'Locked', fr: 'Verrouillée' },
   siren: { en: 'Siren', fr: 'Sirène' },
   garage: { en: 'Garage door', fr: 'Porte de garage' },
@@ -133,6 +136,14 @@ export const T = {
       en: 'The shutoff could not reach the valve yet: it is kept and sent again until YoLink shows the valve closed (24 h at most).',
       fr: "La coupure n'a pas encore pu atteindre la vanne : elle est gardée et renvoyée jusqu'à ce que YoLink montre la vanne fermée (24 h au plus).",
     },
+    closeKeptNoAccount: {
+      en: 'The YoLink account is not configured or not read yet: the shutoff is kept and leaves as soon as the valve is known.',
+      fr: "Le compte YoLink n'est pas encore configuré ou lu : la coupure est gardée et part dès que la vanne est connue.",
+    },
+    tooLate: {
+      en: 'The command could not leave within 3.5 seconds: not sent, try again.',
+      fr: "La commande n'a pas pu partir en 3,5 secondes : non envoyée, réessayez.",
+    },
     closeKeptRefused: {
       en: 'YoLink refuses the UAID or the secret key: the shutoff is kept and leaves as soon as they work again.',
       fr: 'YoLink refuse l’UAID ou la clé secrète : la coupure est gardée et part dès qu’ils fonctionnent de nouveau.',
@@ -146,6 +157,10 @@ export const T = {
       fr: "L'arrêt des sirènes depuis Gladys est désactivé : autorisez-le dans la configuration de l'intégration YoLink.",
     },
   },
+  configUnread: (wait) => ({
+    en: `The configuration could not be read from Gladys: next try in ${wait.en}.`,
+    fr: `La configuration n'a pas pu être lue dans Gladys : nouvel essai dans ${wait.fr}.`,
+  }),
   shutoffsKept: (n, held) => ({
     en: ` ${n === 1 ? '1 shutoff kept' : `${n} shutoffs kept`} until YoLink shows the valve closed${held ? ` (${held} held: sent again every 15 min)` : ''}; given up 24 h after it first left.`,
     fr: ` ${n === 1 ? '1 coupure gardée' : `${n} coupures gardées`} jusqu'à ce que YoLink montre la vanne fermée${held ? ` (${held} retenue${held > 1 ? 's' : ''} : renvoyée${held > 1 ? 's' : ''} toutes les 15 min)` : ''} ; abandon 24 h après le premier envoi.`,

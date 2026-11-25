@@ -59,6 +59,8 @@ const KIND_OF_ROLE = {
   switch: 'switch',
   socket: 'multi-outlet',
   valve: 'valve',
+  water_close: 'valve',
+  water_open: 'valve',
   lock: 'lock',
   siren: 'siren',
   garage: 'garage',
@@ -86,10 +88,12 @@ export class YoLinkApp {
     this.rawStatus = undefined;
     /** false while /data could not be read: the kept shutoffs are read again at each tick. */
     this.shutoffsLoaded = false;
+    /** valve id kept -> device lists read in a row without it */
+    this.missing = new Map();
     this.keeper = new ShutoffKeeper({
-      send: (entry) => this.sendShutoff(entry),
-      read: (entry) => this.readShutoff(entry),
-      ready: () => this.shutoffReady(),
+      send: (entry) => this.refusedSeen(this.sendShutoff(entry)),
+      read: (entry) => this.refusedSeen(this.readShutoff(entry)),
+      ready: (entry) => this.shutoffReady(entry),
       save: (list) => saveShutoffs(this.dataDir, list),
       onChange: () => this.statusAgain(),
       onRateLimited: () => this.rateLimited(),
@@ -171,6 +175,8 @@ export class YoLinkApp {
   stop() {
     this.generation += 1;
     this.keeper.stop();
+    this.timers.clearTimeout(this.configTimer);
+    this.configTimer = undefined;
     if (this.timer) {
       this.timers.clearInterval(this.timer);
       this.timer = undefined;
@@ -300,37 +306,55 @@ export class YoLinkApp {
       this.logger.warn(`Reading the shutoffs kept in ${this.dataDir} failed: ${error.message}`);
     }
     this.shutoffsLoaded = ok;
-    this.keeper.restore(list);
+    // Merged with the shutoffs clicked meanwhile; /data written only once read.
+    this.keeper.restore(list, { ok });
     if (list.length > 0) {
       this.statusAgain();
     }
   }
 
-  /** Can a shutoff leave now: never with refused credentials, after the pause YoLink asked. */
-  shutoffReady() {
-    if (!this.client.hasCredentials || this.refused) {
-      return { blocked: true };
+  /**
+   * Can a shutoff leave now: never with refused credentials nor before its
+   * valve is in a device list read (its token is there), after the pause
+   * YoLink asked.
+   */
+  shutoffReady(entry) {
+    if (!this.client.hasCredentials) {
+      return { blocked: 'noCredentials' };
+    }
+    if (this.refused) {
+      return { blocked: 'refused' };
+    }
+    if (entry && this.devices.get(entry.id)?.kind !== 'valve') {
+      return { blocked: 'notReady' };
     }
     // Bounded: a wall clock set back never holds a shutoff longer than the pause.
     const wait = Math.min(this.pausedUntil - this.now(), TIMINGS.rateLimitPause);
     return wait > 0 ? { wait } : {};
   }
 
-  /** The device of a shutoff, once the account was read (its token is in the device list). */
+  /** The device of a shutoff, once in a device list read (shutoffReady() checks it first). */
   shutoffDevice(entry) {
     const device = this.devices.get(entry.id);
-    if (device?.kind === 'valve') {
-      return device;
+    if (device?.kind !== 'valve') {
+      throw new YoLinkError('not_ready', 'not in the device list read');
     }
-    if (this.readAt !== undefined && !device) {
-      throw new YoLinkError('not_found', 'not in the YoLink account');
-    }
-    throw new YoLinkError('not_ready', device ? 'not a valve' : 'the account is not read yet');
+    return device;
   }
 
-  /** One shutoff to the valve. Its answer is shown, never taken for a confirmation. */
+  /** The time of the last report of a reading (the cloud's clock), or NaN. */
+  reportAtOf(reading) {
+    return typeof reading?.reportAt === 'string' ? Date.parse(reading.reportAt) : NaN;
+  }
+
+  /**
+   * One shutoff to the valve. Resolves 'closed' when the valve itself
+   * answered its request closed (a confirmation); a state read after it
+   * confirms only with a newer report than the one known now.
+   */
   async sendShutoff(entry) {
     const device = this.shutoffDevice(entry);
+    entry.reportBefore = this.reportAtOf(this.readings.get(device.id));
     const params = device.type === 'Manipulator' ? { state: 'close' } : { valve: 'close' };
     const answer = await this.client.invoke(device, 'setState', params);
     const fromAnswer = flatten(answer);
@@ -338,7 +362,63 @@ export class YoLinkApp {
       this.readings.set(device.id, { ...this.readings.get(device.id), ...fromAnswer });
       this.queue(device);
       this.flush().catch(() => {});
+      if (valveState(fromAnswer) === false) {
+        return 'closed';
+      }
     }
+    return 'sent';
+  }
+
+  /** A credential refused on the way of a shutoff is kept like the refresh's: no new try by itself. */
+  async refusedSeen(promise) {
+    try {
+      return await promise;
+    } catch (err) {
+      if (REFUSED.has(err.kind) && !this.refused) {
+        await this.failed(err);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Gladys connected: its configuration is the one the SDK read just before
+   * (SDK 0.16.1, `gladys.config`); asked again, spaced, only if it is missing.
+   * Never taken for empty credentials.
+   */
+  async connectedWith(current, fetch, attempt = 0) {
+    this.timers.clearTimeout(this.configTimer);
+    this.configTimer = undefined;
+    let config = current();
+    if (!config || typeof config !== 'object') {
+      try {
+        config = await fetch();
+      } catch (err) {
+        const wait = TIMINGS.configRetry[Math.min(attempt, TIMINGS.configRetry.length - 1)];
+        this.logger.warn(
+          `Reading the configuration failed: ${err.message}; next try in ${wait / 1000} s`,
+        );
+        await this.setStatus(false, T.configUnread(age(wait)));
+        this.configTimer = this.timers.setTimeout(() => {
+          this.connectedWith(current, fetch, attempt + 1).catch((e) =>
+            this.logger.error(`Start failed: ${e.message}`),
+          );
+        }, wait);
+        return;
+      }
+    }
+    await this.connected(config);
+  }
+
+  /** Why a shutoff did not leave yet, for Gladys. */
+  keptReason(outcome) {
+    if (outcome !== 'blocked') {
+      return 'closeKept';
+    }
+    if (this.client.hasCredentials && this.refused) {
+      return 'closeKeptRefused';
+    }
+    return 'closeKeptNoAccount';
   }
 
   /** The check of a shutoff: its valve read again (a read started now confirms it). */
@@ -384,7 +464,7 @@ export class YoLinkApp {
         `${word(T.leakStopAsleep, this.config.language)} ${word(T.denied.closeKept, this.config.language)}`,
       );
     }
-    throw this.denied(outcome === 'blocked' ? 'closeKeptRefused' : 'closeKept');
+    throw this.denied(this.keptReason(outcome));
   }
 
   // --- Full refresh ----------------------------------------------------------
@@ -432,6 +512,12 @@ export class YoLinkApp {
         return;
       }
       this.applyInventory(us, eu);
+      if (this.readAt === undefined || this.failures > 0 || this.keeper.blocked) {
+        // The valves are known (start), YoLink answers again after a failure,
+        // or accepts the credentials again: the shutoffs kept leave now,
+        // before the states are read.
+        this.keeper.fireAll();
+      }
       for (const device of this.devices.values()) {
         if (generation !== this.generation) {
           return;
@@ -442,14 +528,8 @@ export class YoLinkApp {
       if (generation !== this.generation) {
         return;
       }
-      const first = this.readAt === undefined;
       this.readAt = this.now();
       this.nextRefreshAt = this.readAt + this.config.refreshInterval * 60_000;
-      if (first || this.failures > 0 || this.keeper.blocked) {
-        // The devices are known (start), YoLink answers again after a failure,
-        // or accepts the credentials again: the shutoffs kept leave again.
-        this.keeper.fireAll();
-      }
       this.failures = 0;
       this.offline = false;
       await this.publishDevices();
@@ -483,7 +563,15 @@ export class YoLinkApp {
       }
     }
     for (const id of [...this.keeper.entries.keys()]) {
-      if (this.devices.get(id)?.kind !== 'valve') {
+      if (this.devices.get(id)?.kind === 'valve') {
+        this.missing.delete(id);
+        continue;
+      }
+      // Two device lists in a row without it: a passing empty list never loses it.
+      const times = (this.missing.get(id) ?? 0) + 1;
+      this.missing.set(id, times);
+      if (times >= 2) {
+        this.missing.delete(id);
         this.keeper.letGo(id, 'given up: no such valve in the YoLink account');
       }
     }
@@ -499,9 +587,14 @@ export class YoLinkApp {
       this.readings.set(device.id, reading);
       this.online.set(device.id, data.online !== false);
       if (device.kind === 'valve') {
+        // The cloud answers from its cache: closed counts only with a report
+        // newer than the one known when the shutoff left.
+        const before = this.keeper.entries.get(device.id)?.reportBefore;
         this.keeper.observe(
           device.id,
-          data.online !== false && valveState(reading) === false,
+          data.online !== false &&
+            valveState(reading) === false &&
+            this.reportAtOf(reading) > before,
           ticket,
         );
       }
@@ -768,14 +861,15 @@ export class YoLinkApp {
     if (!target || !Object.hasOwn(KIND_OF_ROLE, role)) {
       throw new Error(`${feature?.external_id} cannot be set`);
     }
-    const v = Number(value);
+    // The water buttons: any push.
+    const v = role === 'water_close' || role === 'water_open' ? 1 : Number(value);
     // The garage door is a cover (SHUTTER_STATE: open 1, close -1, stop 0).
     const accepted =
       role === 'garage' ? [GLADYS.COVER_OPEN, GLADYS.COVER_CLOSE, GLADYS.COVER_STOP] : [0, 1];
     if (!accepted.includes(v)) {
       throw new Error(`Unexpected value "${value}" (${accepted.join(', ')})`);
     }
-    if (role === 'valve' && v === 0) {
+    if ((role === 'valve' && v === 0) || role === 'water_close') {
       // The shutoff: never refused, even before the account is read or while it is refused.
       const name = String(gladysDevice?.name ?? '').trim() || `YoLink ${target.id}`;
       return this.closeValve(target.id, name);
@@ -787,7 +881,7 @@ export class YoLinkApp {
     if (!device) {
       throw new Error('Unknown YoLink device: wait for the first reading of the account');
     }
-    if (role === 'valve' && device.kind === 'valve') {
+    if ((role === 'valve' || role === 'water_open') && device.kind === 'valve') {
       return this.openValve(device);
     }
     if (role === 'garage' && device.kind === 'garage') {
@@ -824,7 +918,8 @@ export class YoLinkApp {
       throw this.denied('closeJustClicked');
     }
     const clicks = this.keeper.clickCount(device.id);
-    await this.execute(device, 'valve', command);
+    // Never sent after Gladys showed a failure (5 s): 3.5 s, like the garage.
+    await this.execute(device, 'valve', command, undefined, this.now() + TIMINGS.garageDeadline);
     // Sent after the last shutoff of this valve: that shutoff is not fought for.
     if (this.keeper.clickCount(device.id) === clicks) {
       this.keeper.letGo(device.id, 'let go by an opening sent after it');
@@ -871,7 +966,7 @@ export class YoLinkApp {
       guard();
       if (err.kind === 'late') {
         // Not sent (or not sent again after a token renewal): past the 5 s ack.
-        throw this.denied('garageSlow');
+        throw this.denied(role === 'garage' ? 'garageSlow' : 'tooLate');
       }
       if (
         err.kind === 'device' &&

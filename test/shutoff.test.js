@@ -41,22 +41,43 @@ const TIMINGS = {
   expiry: 24 * 60 * 60_000,
   minGap: 60_000,
   openBlock: 20_000,
+  retry: 15_000,
 };
 const quiet = { info() {}, warn() {}, debug() {} };
 
-/** A keeper on a fake YoLink: `yl.closed` is what a read shows; `yl.fail` an error kind to throw. */
-function keeperOf({ timings = TIMINGS, timers = createFakeTimers(), clock = { now: 1_000 } } = {}) {
-  const yl = { sends: [], reads: 0, closed: false, fail: undefined, ready: {}, saved: [] };
+/**
+ * A keeper on a fake YoLink: `yl.closed` is what a read shows; `yl.fail` an
+ * error kind the send throws, `yl.readFail` the read. `loaded`: /data read.
+ */
+function keeperOf({
+  timings = TIMINGS,
+  timers = createFakeTimers(),
+  clock = { now: 1_000 },
+  loaded = true,
+} = {}) {
+  const yl = {
+    sends: [],
+    reads: 0,
+    closed: false,
+    fail: undefined,
+    readFail: undefined,
+    ready: {},
+    saved: [],
+  };
   const keeper = new ShutoffKeeper({
     send: async (entry) => {
       yl.sends.push({ id: entry.id, at: clock.now });
       if (yl.fail) {
         throw Object.assign(new Error(yl.fail), { kind: yl.fail });
       }
+      return yl.answer;
     },
     read: async (entry) => {
       const ticket = keeper.ticket();
       yl.reads += 1;
+      if (yl.readFail) {
+        throw Object.assign(new Error(yl.readFail), { kind: yl.readFail });
+      }
       keeper.observe(entry.id, yl.closed, ticket);
     },
     ready: () => yl.ready,
@@ -67,6 +88,10 @@ function keeperOf({ timings = TIMINGS, timers = createFakeTimers(), clock = { no
     wallNow: () => 1_790_000_000_000 + clock.now,
     timings,
   });
+  if (loaded) {
+    keeper.restore([], { ok: true });
+    yl.saved.length = 0;
+  }
   return { keeper, yl, timers, clock };
 }
 
@@ -81,7 +106,10 @@ test('a click sends at once and keeps the shutoff until a later read shows it cl
   assert.equal(await keeper.click('v1', 'Valve'), 'sent');
   assert.deepEqual(yl.sends, [{ id: 'v1', at: 1_000 }]);
   assert.equal(yl.saved.length >= 1, true);
-  assert.deepEqual(yl.saved[0], [{ id: 'v1', name: 'Valve', at: 1_790_000_001_000 }]);
+  await keeper.saving;
+  assert.deepEqual(yl.saved.filter((list) => list.length > 0)[0], [
+    { id: 'v1', name: 'Valve', at: 1_790_000_001_000 },
+  ]);
   // A reading that started before the send ended never confirms it.
   const early = keeper.entries.get('v1').doneTicket - 1;
   keeper.observe('v1', true, early);
@@ -115,6 +143,14 @@ test('a live report counts from the start of the send; a read from its end', asy
   release();
   await sending;
   assert.equal(yl.sends.length, 0);
+});
+
+test('the valve answering its own request closed confirms the shutoff', async () => {
+  const { keeper, yl, timers } = keeperOf();
+  yl.answer = 'closed';
+  assert.equal(await keeper.click('v1', 'Valve'), 'sent');
+  assert.equal(keeper.entries.size, 0);
+  assert.equal(timers.timeouts().length, 0);
 });
 
 test('resends: 3 after 90 s each, then held every 15 min; read before each', async () => {
@@ -183,18 +219,48 @@ test('a refused account: nothing sent, no timer; fireAll sends it, with a new bu
   assert.equal(yl.sends.length, 1);
 });
 
-test('a pause asked by YoLink: the shutoff waits for its end, nothing read before', async () => {
+test('a pause asked by YoLink: a click still sends once; the resends wait for its end', async () => {
   const { keeper, yl, timers, clock } = keeperOf();
   yl.ready = { wait: 300_000 };
-  assert.equal(await keeper.click('v1', 'Valve'), 'paused');
+  assert.equal(await keeper.click('v1', 'Valve'), 'sent');
+  assert.equal(yl.sends.length, 1);
   assert.deepEqual(
     timers.timeouts().map((t) => t.ms),
     [300_000],
+    'checked at the end of the pause',
   );
+  // A second click within a minute: no second request during the pause.
+  clock.now += 59_999;
+  assert.equal(await keeper.click('v1', 'Valve'), 'paused');
+  assert.equal(yl.sends.length, 1);
+  clock.now += 1;
+  assert.equal(await keeper.click('v1', 'Valve'), 'sent');
+  assert.equal(yl.sends.length, 2);
+  // fireAll during the pause: waits.
+  clock.now += 60_000;
+  keeper.fireAll();
+  assert.equal(yl.sends.length, 2);
   yl.ready = {};
   await runAll(timers, clock);
   assert.equal(yl.reads, 1);
-  assert.equal(yl.sends.length, 1);
+  assert.equal(yl.sends.length, 3);
+});
+
+test('fireAll within a minute of a send, after stop(): checked later, never orphaned', async () => {
+  const { keeper, yl, timers, clock } = keeperOf();
+  yl.fail = 'unavailable';
+  await keeper.click('v1', 'Valve');
+  keeper.stop();
+  assert.equal(timers.timeouts().length, 0);
+  clock.now += 200;
+  keeper.fireAll();
+  assert.deepEqual(
+    timers.timeouts().map((t) => t.ms),
+    [59_800],
+  );
+  yl.fail = undefined;
+  await runAll(timers, clock);
+  assert.equal(yl.sends.length, 2);
 });
 
 test('fireAll: skips a shutoff sent less than a minute ago or in flight', async () => {
@@ -210,7 +276,7 @@ test('fireAll: skips a shutoff sent less than a minute ago or in flight', async 
   assert.equal(yl.sends.length, 2, 'one send in flight at a time');
 });
 
-test('a failed send is checked again; 404 gives up; 429 asks the app to pause', async () => {
+test('a failed send is checked again in 15 s; 429 asks the app to pause', async () => {
   let paused;
   const { keeper, yl, timers, clock } = keeperOf();
   keeper.onRateLimited = (err) => (paused = err.kind);
@@ -218,16 +284,64 @@ test('a failed send is checked again; 404 gives up; 429 asks the app to pause', 
   assert.equal(await keeper.click('v1', 'Valve'), 'failed');
   assert.deepEqual(
     timers.timeouts().map((t) => t.ms),
-    [90_000],
+    [15_000],
   );
   yl.fail = 'rate_limited';
   await runAll(timers, clock);
   assert.equal(paused, 'rate_limited');
   assert.equal(keeper.entries.size, 1);
+});
+
+test('404: given up only when the read after it is a 404 too', async () => {
+  const { keeper, yl, timers, clock } = keeperOf();
   yl.fail = 'not_found';
+  await keeper.click('v1', 'Valve');
+  assert.equal(keeper.entries.size, 1, 'one 404 is not enough');
+  // The read answers: kept, sent again.
+  await runAll(timers, clock);
+  assert.equal(keeper.entries.size, 1);
+  assert.equal(yl.sends.length, 2);
+  // A send accepted, then a 404 read: still kept.
+  yl.fail = undefined;
+  await runAll(timers, clock);
+  yl.readFail = 'not_found';
+  await runAll(timers, clock);
+  assert.equal(keeper.entries.size, 1, 'a 404 read after an accepted send is not enough');
+  // Both unknown: given up at the read after a 404 send.
+  yl.fail = 'not_found';
+  while (keeper.entries.get('v1')?.lastError?.kind !== 'not_found') {
+    await runAll(timers, clock);
+  }
+  assert.equal(keeper.entries.size, 1);
   await runAll(timers, clock);
   assert.equal(keeper.entries.size, 0);
   assert.equal(timers.timeouts().length, 0);
+});
+
+test('/data never written before it was read; the file read is merged', async () => {
+  const { keeper, yl } = keeperOf({ loaded: false });
+  await keeper.click('v1', 'Clicked');
+  await keeper.click('v3', 'Done');
+  keeper.letGo('v3', 'confirmed');
+  await keeper.saving;
+  assert.deepEqual(yl.saved, [], 'nothing written: /data not read');
+  // Unreadable: still nothing written.
+  keeper.restore([], { ok: false });
+  await keeper.saving;
+  assert.deepEqual(yl.saved, []);
+  // Read: merged (v3 let go meanwhile is not taken back), then written.
+  keeper.restore(
+    [
+      { id: 'v2', name: 'Kept', at: 5 },
+      { id: 'v3', name: 'Done', at: 6 },
+    ],
+    { ok: true },
+  );
+  await keeper.saving;
+  assert.deepEqual(
+    yl.saved.at(-1).map((e) => e.id),
+    ['v1', 'v2'],
+  );
 });
 
 test('a click while its send is in flight: one request, not two', async () => {

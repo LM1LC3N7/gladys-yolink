@@ -13,19 +13,19 @@ l'application YoLink, sans bricolage. Non officielle, sans lien avec YoSmart.
 
 Un appareil Gladys par appareil YoLink pris en charge :
 
-| Appareil YoLink                                        | Dans Gladys                                                      |
-| ------------------------------------------------------ | ---------------------------------------------------------------- |
-| Capteur de porte (DoorSensor)                          | ouverture (ouvert/fermé), batterie %                             |
-| Détecteur de mouvement (MotionSensor)                  | mouvement, batterie %                                            |
-| Détecteur de fuite (LeakSensor)                        | fuite d'eau, batterie %                                          |
-| Capteur de température et d'humidité (THSensor)        | température °C, humidité % (sauf modèles sans sonde), batterie % |
-| Capteur de vibration (VibrationSensor)                 | vibration, batterie %                                            |
-| Prise, interrupteur (Outlet, Switch)                   | marche/arrêt (commandable), puissance W (prises Energy)          |
-| Multiprise (MultiOutlet)                               | chaque prise en marche/arrêt (commandable)                       |
-| Vanne d'eau (Manipulator, LeakStop, FlowSmart Control) | vanne ouverte/fermée (commandable), batterie %                   |
-| Serrure (Lock M1, Lock M2)                             | verrouillée (commandable), batterie %                            |
-| Sirène (Siren)                                         | sirène en marche/arrêt (commandable), batterie %                 |
-| Porte de garage (GarageDoor, Finger)                   | commande de volet ouvrir/fermer, état d'après son capteur        |
+| Appareil YoLink                                        | Dans Gladys                                                                    |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Capteur de porte (DoorSensor)                          | ouverture (ouvert/fermé), batterie %                                           |
+| Détecteur de mouvement (MotionSensor)                  | mouvement, batterie %                                                          |
+| Détecteur de fuite (LeakSensor)                        | fuite d'eau, batterie %                                                        |
+| Capteur de température et d'humidité (THSensor)        | température °C, humidité % (sauf modèles sans sonde), batterie %               |
+| Capteur de vibration (VibrationSensor)                 | vibration, batterie %                                                          |
+| Prise, interrupteur (Outlet, Switch)                   | marche/arrêt (commandable), puissance W (prises Energy)                        |
+| Multiprise (MultiOutlet)                               | chaque prise en marche/arrêt (commandable)                                     |
+| Vanne d'eau (Manipulator, LeakStop, FlowSmart Control) | boutons Couper l'eau / Ouvrir l'eau, vanne ouverte (lecture seule), batterie % |
+| Serrure (Lock M1, Lock M2)                             | verrouillée (commandable), batterie %                                          |
+| Sirène (Siren)                                         | sirène en marche/arrêt (commandable), batterie %                               |
+| Porte de garage (GarageDoor, Finger)                   | commande de volet ouvrir/fermer, état d'après son capteur                      |
 
 Les hubs, télécommandes, thermostats, arrosages et autres types ne sont pas
 encore pris en charge : le bouton **Tester la connexion** indique combien
@@ -61,35 +61,46 @@ réglée dans l'application YoLink.
 
 **Fermer une vanne d'eau coupe l'eau : c'est une protection, elle n'est jamais
 refusée et ne demande aucune option** (une scène sur fuite fonctionne dès
-l'installation). Une coupure (l'interrupteur de vanne mis à 0) :
+l'installation). Une coupure (le bouton **Couper l'eau**, ou l'interrupteur
+de vanne d'un appareil ajouté avant la 0.1.3 mis à 0) :
 
-- part tout de suite, sans relire la vanne avant ;
-- est **gardée jusqu'à ce que YoLink montre la vanne fermée** par une lecture
-  faite après son envoi (une lecture d'état, ou un événement en direct de la
-  vanne ; appareil en ligne). D'ici là elle est renvoyée : la vanne est relue
-  60 secondes après chaque envoi et la coupure renvoyée si elle n'est pas
-  fermée, 3 fois, puis toutes les 15 minutes ; aussi après un redémarrage de
-  l'intégration (elle est gardée dans ses données) et quand YoLink répond de
-  nouveau après une panne. Elle attend la pause que YoLink demande (limites
-  atteintes) et des identifiants qui fonctionnent. Un LeakStop en mode
-  économie d'énergie (classe A) qui ne répond pas est réessayé de la même
-  façon ;
-- est **abandonnée 24 heures après son premier envoi** si YoLink ne montre
-  toujours pas la vanne fermée, ce que dit le statut de l'intégration ; aussi
-  quand l'appareil est supprimé dans Gladys ou quitte le compte YoLink ;
+- part tout de suite, sans relire la vanne avant, même pendant une pause
+  demandée par YoLink (une requête ; un second clic dans la minute attend la
+  fin de la pause) ; demandée avant la lecture du compte, elle part dès que la
+  liste des appareils est lue ;
+- est **gardée jusqu'à ce que la vanne elle-même la montre fermée** après son
+  envoi : sa réponse à la commande, un événement en direct de la vanne, ou
+  une lecture d'état dont le rapport est plus récent que l'envoi (le cache du
+  cloud ne la confirme jamais). D'ici là elle est renvoyée : la vanne est
+  relue 60 secondes après chaque envoi (15 secondes après un envoi en échec,
+  un LeakStop endormi en classe A par exemple) et la coupure renvoyée si elle
+  n'est pas fermée, 3 fois, puis toutes les 15 minutes ; aussi après un
+  redémarrage de l'intégration (elle est gardée dans ses données) et quand
+  YoLink répond de nouveau après une panne. Les renvois attendent la pause
+  que YoLink demande (limites atteintes) et des identifiants qui
+  fonctionnent ;
+- est **abandonnée 24 heures après son premier envoi** si la vanne ne la
+  montre toujours pas fermée, ce que dit le statut de l'intégration ; aussi
+  quand l'appareil est supprimé dans Gladys ou manque à deux listes
+  d'appareils de suite ;
 - une fois vue fermée, c'est terminé : rouvrir l'eau plus tard dans
   l'application YoLink n'est jamais contré.
 
 Si la coupure n'a pas pu atteindre la vanne en 3,5 secondes, Gladys affiche
-un message disant qu'elle est gardée et renvoyée. Une ouverture (si elle est
-autorisée) est refusée dans les 20 secondes qui suivent une coupure de la
-même vanne, et met fin à une coupure demandée avant elle (l'ouverture est ce
-que vous avez demandé en dernier).
+un message disant qu'elle est gardée et renvoyée. Une ouverture (le bouton
+**Ouvrir l'eau**, si elle est autorisée) doit partir en 3,5 secondes, est
+refusée dans les 20 secondes qui suivent une coupure de la même vanne pas
+encore vue fermée, et met fin à une coupure demandée avant elle (l'ouverture
+est ce que vous avez demandé en dernier).
 
-**La vanne est un interrupteur Gladys :** un assistant vocal, une commande
-« tout éteindre » ou une scène qui agit sur tous les interrupteurs peut couper
-l'eau (toujours permis), et l'ouvrir une fois l'option activée. Vérifiez vos
-scènes et vos assistants.
+**Les commandes de l'eau sont des boutons**, jamais un interrupteur : un
+assistant vocal, une commande « tout éteindre » ou une scène qui agit sur
+tous les interrupteurs ne les atteint pas. Depuis la 0.1.3, l'interrupteur de
+vanne n'est plus proposé en Découverte ; sur un appareil ajouté avant, il
+fonctionne toujours (une scène « fuite → vanne à 0 » protège encore) mais un
+« tout éteindre » peut l'atteindre. **À faire** : dans vos scènes, remplacez
+l'interrupteur de vanne par le bouton **Couper l'eau**, puis relancez la
+Découverte et enregistrez l'appareil pour que l'interrupteur disparaisse.
 
 La porte de garage YoLink apparaît dans Gladys comme une **commande de volet**
 (ouvrir, fermer), jamais comme un interrupteur : une scène qui allume ou

@@ -63,10 +63,14 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (YoLinkApp) ⇄ src/client.js 
 - **Commands**: `<type>.setState` (plugs, switches, sockets with `chs`, valves,
   locks, sirens) and `<type>.toggle` (garage doors), behind the safety options
   (`allow_unlock`, `allow_garage_open`, `allow_valve_open`,
-  `allow_siren_stop`). Closing a valve behind no option (src/shutoff.js):
+  `allow_siren_stop`). Valves: buttons `water_close` / `water_open` and
+  `valve_open` (read only); the `valve` switch of 0.1.0-0.1.2 is still
+  understood, no longer in Discovery. Closing a valve behind no option (src/shutoff.js):
   sent at once, kept in memory and in `/data/yolink-shutoffs.json` until a
   state read started after the send, or a live report received after it,
-  shows the valve closed (device online); read again 60 s after each send
+  shows the valve closed (device online) — the state read only with a report
+  newer than the send, the answer of the valve to its setState confirms too;
+  read again 60 s after each send
   and sent again (3 times, then every 15 min), sent again at a restart and
   when YoLink answers after a failure, waits for a rate-limit pause, given up
   24 h after its first send (monotonic, in the status). An opening is refused

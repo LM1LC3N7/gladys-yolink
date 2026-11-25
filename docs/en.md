@@ -13,19 +13,19 @@ YoLink app, no hack. Unofficial, not affiliated with YoSmart.
 
 One Gladys device per supported YoLink device:
 
-| YoLink device                                          | In Gladys                                                        |
-| ------------------------------------------------------ | ---------------------------------------------------------------- |
-| Door sensor (DoorSensor)                               | open/closed, battery %                                           |
-| Motion sensor (MotionSensor)                           | motion, battery %                                                |
-| Leak sensor (LeakSensor)                               | water leak, battery %                                            |
-| Temperature & humidity sensor (THSensor)               | temperature °C, humidity % (not on probe-less models), battery % |
-| Vibration sensor (VibrationSensor)                     | vibration, battery %                                             |
-| Plug, switch (Outlet, Switch)                          | on/off (settable), power W (Energy plugs)                        |
-| Power strip (MultiOutlet)                              | each socket on/off (settable)                                    |
-| Water valve (Manipulator, LeakStop, FlowSmart Control) | valve open/closed (settable), battery %                          |
-| Lock (Lock M1, Lock M2)                                | locked (settable), battery %                                     |
-| Siren (Siren)                                          | siren on/off (settable), battery %                               |
-| Garage door (GarageDoor, Finger)                       | cover command open/close, state from its door sensor             |
+| YoLink device                                          | In Gladys                                                                         |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Door sensor (DoorSensor)                               | open/closed, battery %                                                            |
+| Motion sensor (MotionSensor)                           | motion, battery %                                                                 |
+| Leak sensor (LeakSensor)                               | water leak, battery %                                                             |
+| Temperature & humidity sensor (THSensor)               | temperature °C, humidity % (not on probe-less models), battery %                  |
+| Vibration sensor (VibrationSensor)                     | vibration, battery %                                                              |
+| Plug, switch (Outlet, Switch)                          | on/off (settable), power W (Energy plugs)                                         |
+| Power strip (MultiOutlet)                              | each socket on/off (settable)                                                     |
+| Water valve (Manipulator, LeakStop, FlowSmart Control) | buttons Shut the water off / Turn the water on, valve open (read only), battery % |
+| Lock (Lock M1, Lock M2)                                | locked (settable), battery %                                                      |
+| Siren (Siren)                                          | siren on/off (settable), battery %                                                |
+| Garage door (GarageDoor, Finger)                       | cover command open/close, state from its door sensor                              |
 
 Hubs, remotes, thermostats, sprinklers and other types are not supported yet:
 the **Test the connection** button tells how many devices are skipped.
@@ -57,33 +57,42 @@ app.
 
 **Closing a water valve shuts the water off: it protects, so it is never
 refused and needs no option** (a scene on a leak works as installed). A
-shutoff (the valve switch set to 0):
+shutoff (the **Shut the water off** button, or the valve switch of a device
+added before 0.1.3 set to 0):
 
-- leaves at once, without reading the valve first;
-- is **kept until YoLink shows the valve closed** by a reading made after it
-  was sent (a state read, or a live event of the valve; device online). Until
+- leaves at once, without reading the valve first, even during a pause
+  YoLink asked for (one request; a second click within a minute waits for the
+  end of the pause); clicked before the account is read, it leaves as soon as
+  the device list is read;
+- is **kept until the valve itself shows it closed** after it was sent: its
+  answer to the command, a live event of the valve, or a state read with a
+  report newer than the send (the cloud's cache never confirms it). Until
   then it is sent again: the valve is read again 60 seconds after each send
+  (15 seconds after a failed one, a LeakStop asleep in class A for example)
   and the shutoff sent again if it is not closed, 3 times, then every 15
   minutes; also after a restart of the integration (it is kept in its data)
-  and when YoLink answers again after an outage. It waits for the pause
-  YoLink asks for (limits reached) and for working credentials. A LeakStop in
-  power-saving (class A) mode that does not answer is tried again the same
-  way;
-- is **given up 24 hours after it first left** without YoLink showing the
-  valve closed, said in the integration status; also when the device is
-  deleted in Gladys or leaves the YoLink account;
+  and when YoLink answers again after an outage. The resends wait for the
+  pause YoLink asks for (limits reached) and for working credentials;
+- is **given up 24 hours after it first left** without the valve showing it
+  closed, said in the integration status; also when the device is deleted in
+  Gladys or is missing from two device lists in a row;
 - once seen closed, it is done: reopening the water in the YoLink app later
   is never fought.
 
 If the shutoff could not reach the valve within 3.5 seconds, Gladys shows a
-message saying that it is kept and sent again. An opening (when allowed) is
-refused within 20 seconds of a shutoff of the same valve, and lets go of a
-shutoff asked before it (the opening is what you asked last).
+message saying that it is kept and sent again. An opening (the **Turn the
+water on** button, when allowed) must leave within 3.5 seconds, is refused
+within 20 seconds of a shutoff of the same valve not yet seen closed, and
+lets go of a shutoff asked before it (the opening is what you asked last).
 
-**The valve is a Gladys switch:** a voice assistant, a "turn everything off"
-command or a scene acting on every switch can shut the water off (always
-allowed), and open it once that option is on. Check your scenes and
-assistants.
+**The water commands are buttons**, never a switch: a voice assistant, a
+"turn everything off" command or a scene acting on every switch never
+reaches them. Since 0.1.3 the valve switch is no longer offered in
+Discovery; on a device added before, it still works (a scene "leak → valve
+to 0" keeps protecting) but it can be reached by a "turn everything off".
+**What to do**: in your scenes, replace the valve switch with the **Shut the
+water off** button, then run Discovery again and save the device so that the
+switch goes away.
 
 A YoLink garage door appears in Gladys as a **cover command** (like a
 shutter: open, close), never as a switch, so a scene that turns everything on

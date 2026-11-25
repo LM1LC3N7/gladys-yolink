@@ -55,7 +55,9 @@ test/                             node --test, SDK fake Gladys + fake YoLink (te
 - **Valves.** Closing a valve shuts the water off: never refused, behind no
   option (Louis's decision, 2026-11-25), kept and sent again until YoLink
   shows it closed, 24 h at most (src/shutoff.js). Opening stays behind
-  `allow_valve_open` (off). Keep the tests that prove it.
+  `allow_valve_open` (off). The water commands are buttons (`water_close`,
+  `water_open`), never a switch; the `valve` switch of 0.1.0-0.1.2 stays
+  understood, not offered. Keep the tests that prove it.
 - **SDK v0.16.** Features follow the core model: every feature has a numeric
   `min` and `max` (0/0 for text), a non-empty name, `read_only` and
   `has_feedback`, or Gladys answers HTTP 422; the SDK's fake Gladys (0.16.1)

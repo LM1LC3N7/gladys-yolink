@@ -28,6 +28,7 @@ import {
 
 const binary = { min: 0, max: 1 };
 const command = { read_only: false, has_feedback: true };
+const pushButton = { read_only: false, has_feedback: false, keep_history: false };
 
 /** The features, by role. */
 export const FEATURES = {
@@ -53,7 +54,13 @@ export const FEATURES = {
   switch: { category: C.SWITCH, type: T.SWITCH.BINARY, ...binary, ...command },
   socket: { category: C.SWITCH, type: T.SWITCH.BINARY, ...binary, ...command },
   power: { category: C.SWITCH, type: T.SWITCH.POWER, unit: U.WATT, min: 0, max: 4000 },
+  // The valve switch of 0.1.0-0.1.2: still understood (scenes made with it)
+  // and still updated where created, no longer offered in Discovery.
   valve: { category: C.SWITCH, type: T.SWITCH.BINARY, ...binary, ...command },
+  valve_open: { category: C.UNKNOWN, type: T.SENSOR.BINARY, ...binary },
+  // Push buttons: never a switch a "turn everything off" could reach.
+  water_close: { category: C.BUTTON, type: T.BUTTON.PUSH, min: 0, max: 1, ...pushButton },
+  water_open: { category: C.BUTTON, type: T.BUTTON.PUSH, min: 0, max: 1, ...pushButton },
   lock: { category: C.LOCK, type: T.LOCK.BINARY, ...binary, ...command },
   siren: { category: C.SIREN, type: T.SIREN.BINARY, ...binary, ...command },
   // A cover command (open 1, close -1; stop 0 refused: the controller only
@@ -152,7 +159,7 @@ function featuresOf(ids, device, reading, language) {
       }
       break;
     case 'valve':
-      features.push(f('valve'));
+      features.push(f('valve_open'), f('water_close'), f('water_open'));
       break;
     case 'lock':
       features.push(f('lock'));
@@ -246,6 +253,7 @@ export function statesOf(device, reading, { door, sockets } = {}) {
     case 'valve': {
       const valve = valveState(reading);
       add('valve', valve === undefined ? undefined : bit(valve));
+      add('valve_open', valve === undefined ? undefined : bit(valve));
       break;
     }
     case 'lock': {

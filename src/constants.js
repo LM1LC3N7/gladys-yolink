@@ -184,8 +184,12 @@ export const TIMINGS = {
    * first left. At most one request of a kept shutoff in flight per valve:
    * two requests a minute at most, far under YoLink's limits.
    */
+  /** The configuration missing at a connection: asked again after these delays. */
+  configRetry: [10_000, 30_000, 60_000, 5 * 60_000],
   shutoff: {
     check: 60_000,
+    /** After a send that failed (network, valve asleep): checked sooner. */
+    retry: 15_000,
     resends: 3,
     heldEvery: 15 * 60_000,
     expiry: 24 * 60 * 60_000,

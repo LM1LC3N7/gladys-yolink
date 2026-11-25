@@ -36,6 +36,8 @@ export function fakeYoLink({ lifetime = 7200 } = {}) {
     unreachable: new Set(),
     /** deviceIds accepting setState without moving */
     stuck: new Set(),
+    /** deviceId -> time of its last report to the cloud (ISO); an old one by default */
+    reportAt: {},
     /** types answering "method is not supported" to fetchState */
     noFetch: new Set(['Siren']),
     /** { url, endpoint, method, body, token, at } */
@@ -152,7 +154,12 @@ export function fakeYoLink({ lifetime = 7200 } = {}) {
       }
       return answer(
         200,
-        budp(bddp.method, { online: true, state, deviceId: device.deviceId, reportAt: 'x' }),
+        budp(bddp.method, {
+          online: true,
+          state,
+          deviceId: device.deviceId,
+          reportAt: server.reportAt[device.deviceId] ?? '2026-01-01T00:00:00.000Z',
+        }),
       );
     }
     if (action === 'getState') {
@@ -165,6 +172,7 @@ export function fakeYoLink({ lifetime = 7200 } = {}) {
         // Accepted, but the device does not move (a jammed valve).
         return answer(200, budp(bddp.method, { state: state.state }));
       }
+      server.reportAt[device.deviceId] = new Date(Date.now()).toISOString();
       if (type === 'MultiOutlet') {
         state.state = state.state.map((s, i) =>
           p.chs & (1 << i) ? (p.state === 'open' ? 'open' : 'closed') : s,

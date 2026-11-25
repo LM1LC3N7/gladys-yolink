@@ -14,25 +14,38 @@ the notes of the version's GitHub Release.
 
 - **Closing a water valve (shutting the water off) is never refused any more
   and needs no option**: it protects (Louis's rule of 2026-11-25). The
-  shutoff leaves at once, without reading the valve first, and is kept, also
-  across a restart, until YoLink shows the valve closed by a reading made
-  after it was sent (a state read or a live event): read again 60 s after each
-  send and sent again if needed (3 times, then every 15 minutes), sent again
-  when YoLink answers after an outage, waiting for the pause YoLink asks for.
-  A LeakStop asleep (class A) is tried again the same way. It is given up 24
-  hours after it first left without YoLink showing the valve closed, as the
-  integration status says. Once seen closed, reopening the water in the
-  YoLink app is never fought.
-- Opening a valve stays off by default; when allowed, it is refused within
-  20 seconds of a shutoff of the same valve, and an opening sent lets an
-  older shutoff go.
-- Warning: the valve is a Gladys switch; a "turn everything off" command or
-  a scene acting on every switch can now shut the water off without any
-  option. Check your scenes and voice assistants.
+  shutoff leaves at once, without reading the valve first, even during a
+  pause YoLink asked for (one request), and is kept, also across a restart,
+  until the valve itself shows it closed after it was sent (its answer, a
+  live event, or a state read with a newer report: the cloud's cache never
+  confirms it). It is sent again if needed (read again 60 s after each send,
+  15 s after a failed one; 3 times, then every 15 minutes), again when YoLink
+  answers after an outage; the resends wait for the pause YoLink asks for. A
+  LeakStop asleep (class A) is tried again the same way. It is given up 24
+  hours after it first left, as the integration status says. Once seen
+  closed, reopening the water in the YoLink app is never fought.
+- Opening a valve stays off by default; when allowed, it must leave within
+  3.5 seconds, is refused within 20 seconds of a shutoff of the same valve
+  not yet seen closed, and an opening sent lets an older shutoff go.
+- The integration starts from the configuration Gladys gave at the
+  connection; if it is missing, it is asked again, spaced, with an exact
+  status (never taken for refused credentials).
 - Integration SDK 0.16.1 (no change for the devices).
+
+### Added
+
+- **Buttons "Shut the water off" and "Turn the water on"** on the water
+  valves (opening behind its option), and "Valve open" (read only). A button
+  is never reached by a "turn everything off" command or a scene acting on
+  every switch.
 
 ### Removed
 
+- The valve switch is no longer offered in Discovery. On a device added
+  before, it keeps working (your scenes still close the valve) but a "turn
+  everything off" could now shut the water off. **What to do**: in your
+  scenes, replace the valve switch with the "Shut the water off" button, then
+  run Discovery again and save the device.
 - The option "Allow closing the water valves" (`allow_valve_close`): closing
   is always allowed. A configuration that still holds it keeps working, the
   value is ignored.
